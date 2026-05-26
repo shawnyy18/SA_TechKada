@@ -1,3 +1,10 @@
+Contract ID: CDKUIVWPVLL5MYZXJWVQONH4XR4KAKJYONQTUN77TP2FCTOPSKJLQ6V7
+
+🔗 https://stellar.expert/explorer/testnet/tx/b3438ac2253ac9fdf42abf5433c409ffa572c19a80e79f044768d5892c35995f
+
+<img width="1920" height="905" alt="Screenshot 2026-05-26 120857" src="https://github.com/user-attachments/assets/907003ba-3cc0-4ce6-8cf1-ecd6efed7f23" />
+
+
 # SA Prime Properties
 Uncompromising Trust. Cryptographic Escrow for Premium Real Estate.
 

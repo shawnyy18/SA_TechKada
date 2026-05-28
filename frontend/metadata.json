@@ -1,0 +1,8 @@
+{
+  "name": "SA Prime Properties",
+  "description": "Cryptographic escrow platform for OFW real estate reservations built on the Stellar blockchain.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

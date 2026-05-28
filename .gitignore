@@ -1,0 +1,22 @@
+# Rust / Soroban build artifacts
+target/
+*.wasm
+
+# Stellar CLI binary (downloaded)
+stellar
+stellar-cli.tar.gz
+contracts/SA-Prime-Properties/stellar-cli.tar.gz
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/deploy.cjs
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

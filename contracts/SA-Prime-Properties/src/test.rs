@@ -115,4 +115,41 @@ mod tests {
         assert_eq!(token_client.balance(&contract_id), 0);
         assert_eq!(token_client.balance(&buyer), 500_000);
     }
+
+    // TEST 6: Getter Verification - All getters return correct values after lock
+    #[test]
+    fn test_6_getters_return_correct_values() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (buyer, broker, token_addr, token_client) = setup_test(&env);
+        
+        let contract_id = env.register_contract(None, SAPrimePropertiesContract);
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+
+        token_client.mint(&buyer, &500_000);
+        client.lock_funds(&buyer, &broker, &token_addr, &100_000);
+
+        // Verify all getters return the expected values
+        assert_eq!(client.get_buyer(), Some(buyer));
+        assert_eq!(client.get_broker(), Some(broker));
+        assert_eq!(client.get_token(), Some(token_addr));
+        assert_eq!(client.get_amount(), Some(100_000));
+        assert_eq!(client.get_status(), Some(0)); // 0 = Locked
+    }
+
+    // TEST 7: Getter Verification - Getters return None on uninitialized contract
+    #[test]
+    fn test_7_getters_return_none_when_uninitialized() {
+        let env = Env::default();
+        
+        let contract_id = env.register_contract(None, SAPrimePropertiesContract);
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+
+        // Before any lock_funds call, all getters should return None
+        assert_eq!(client.get_buyer(), None);
+        assert_eq!(client.get_broker(), None);
+        assert_eq!(client.get_token(), None);
+        assert_eq!(client.get_amount(), None);
+        assert_eq!(client.get_status(), None);
+    }
 }

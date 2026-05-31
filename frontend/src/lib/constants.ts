@@ -6,20 +6,20 @@
  */
 
 export const CONTRACT_ADDRESS =
-  import.meta.env.VITE_CONTRACT_ADDRESS ||
+  import.meta.env.VITE_CONTRACT_ADDRESS?.trim() ||
   "CCUQYF3N3BTSCCJKAW7NRYKZINZLOYVQDL7JZHCXMXJYILGWCZLQ55HD";
 
 export const STELLAR_NETWORK =
-  import.meta.env.VITE_STELLAR_NETWORK || "TESTNET";
+  import.meta.env.VITE_STELLAR_NETWORK?.trim() || "TESTNET";
 
 export const HORIZON_URL =
-  import.meta.env.VITE_HORIZON_URL || "https://horizon-testnet.stellar.org";
+  import.meta.env.VITE_HORIZON_URL?.trim() || "https://horizon-testnet.stellar.org";
 
 export const SOROBAN_URL =
-  import.meta.env.VITE_SOROBAN_URL || "https://soroban-testnet.stellar.org";
+  import.meta.env.VITE_SOROBAN_URL?.trim() || "https://soroban-testnet.stellar.org";
 
 export const BROKER_ADDRESS =
-  import.meta.env.VITE_BROKER_ADDRESS ||
+  import.meta.env.VITE_BROKER_ADDRESS?.trim() ||
   "GDMHW3FNKUHNVUMFZQZ325WRFYCRAR3CWYZ7BRGCN2U4L63VNDDOWNAW";
 
 /** XLM → PHP conversion rate (hardcoded for demo, matches spec) */

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Cormorant+Garamond:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -17,16 +17,118 @@
   --font-mono: "DM Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/* ── Base Resets ── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
   background-color: var(--color-navy);
   color: var(--color-off-white);
   font-family: var(--font-sans);
+  line-height: 1.6;
+  min-height: 100vh;
 }
+
+/* ── Typography ── */
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-serif);
+  line-height: 1.15;
 }
 
-.font-mono {
+code,
+.font-mono,
+[class*="font-mono"] {
   font-family: var(--font-mono);
+}
+
+/* ── Selection ── */
+
+::selection {
+  background-color: rgba(184, 149, 42, 0.3);
+  color: var(--color-off-white);
+}
+
+/* ── Scrollbar ── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-navy);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(184, 149, 42, 0.3);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(184, 149, 42, 0.5);
+}
+
+/* ── Toast Animations ── */
+
+@keyframes enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes leave {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+}
+
+.animate-enter {
+  animation: enter 0.2s ease-out forwards;
+}
+
+.animate-leave {
+  animation: leave 0.15s ease-in forwards;
+}
+
+/* ── Gold Glow Utility ── */
+
+.gold-glow {
+  box-shadow: 0 0 20px rgba(184, 149, 42, 0.3);
+}
+
+.gold-glow-lg {
+  box-shadow: 0 0 40px rgba(184, 149, 42, 0.2);
+}
+
+/* ── Input Base ── */
+
+input[type="text"],
+input[type="email"],
+input[type="number"],
+textarea {
+  font-family: var(--font-mono);
+}
+
+/* ── Tabular Numerals for countdowns ── */
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }

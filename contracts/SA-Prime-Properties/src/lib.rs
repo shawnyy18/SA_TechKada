@@ -1,175 +1,160 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, String};
 
-/// Defines the cryptographic storage keys for the S.A. escrow state machine.
+#[cfg(test)]
+mod test;
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
-    Buyer,
-    Broker,
-    Token,
-    Amount,
-    Status, // 0 = Locked, 1 = Released, 2 = Refunded
+    Escrow(String), // Maps lot_id to Escrow struct
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Escrow {
+    pub buyer: Address,
+    pub broker: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub status: u32,       // 0 = Locked, 1 = Released, 2 = Refunded
+    pub expiry_ledger: u32,
+    pub docs_verified: bool,
+    pub doc_hash: Option<String>,
 }
 
 #[contract]
 pub struct SAPrimePropertiesContract;
 
+const SEVEN_DAYS_IN_LEDGERS: u32 = 120_960;
+
 #[contractimpl]
 impl SAPrimePropertiesContract {
-    /// MVP TRANSACTION 1: Initializes the escrow and locks the buyer's capital.
-    /// Triggered via the Freighter Wallet extension.
-    /// If a previous escrow was completed (released or refunded), it clears the
-    /// old state and allows a fresh escrow to be created.
     pub fn lock_funds(
         env: Env,
+        lot_id: String,
         buyer: Address,
         broker: Address,
         token: Address,
         amount: i128,
     ) {
-        // Enforces cryptographic signature from the Freighter Testnet wallet
         buyer.require_auth();
-        
-        // Prevent overwriting an active, funded escrow vault
-        if env.storage().instance().has(&DataKey::Status) {
-            let existing_status: u32 = env.storage().instance().get(&DataKey::Status).unwrap();
-            if existing_status == 0 {
-                panic!("Vault Security: Escrow is already locked and active");
+
+        if let Some(existing) = env.storage().instance().get::<_, Escrow>(&DataKey::Escrow(lot_id.clone())) {
+            if existing.status == 0 {
+                panic!("Vault Security: Escrow for this lot is already locked and active");
             }
-            // If escrow is completed (released or refunded), clear previous state for a fresh escrow
-            env.storage().instance().remove(&DataKey::Buyer);
-            env.storage().instance().remove(&DataKey::Broker);
-            env.storage().instance().remove(&DataKey::Token);
-            env.storage().instance().remove(&DataKey::Amount);
-            env.storage().instance().remove(&DataKey::Status);
+            // If status is 1 or 2, we can overwrite it with a new reservation
         }
 
-        // Persist the transaction ledger into the contract's immutable state
-        env.storage().instance().set(&DataKey::Buyer, &buyer);
-        env.storage().instance().set(&DataKey::Broker, &broker);
-        env.storage().instance().set(&DataKey::Token, &token);
-        env.storage().instance().set(&DataKey::Amount, &amount);
-        env.storage().instance().set(&DataKey::Status, &0u32); // 0 = Locked
+        let expiry_ledger = env.ledger().sequence() + SEVEN_DAYS_IN_LEDGERS;
 
-        // Execute the transfer from the Freighter wallet to this smart contract
+        let new_escrow = Escrow {
+            buyer: buyer.clone(),
+            broker,
+            token: token.clone(),
+            amount,
+            status: 0,
+            expiry_ledger,
+            docs_verified: false,
+            doc_hash: None,
+        };
+
+        env.storage().instance().set(&DataKey::Escrow(lot_id), &new_escrow);
+
         let token_client = token::Client::new(&env, &token);
         token_client.transfer(&buyer, &env.current_contract_address(), &amount);
     }
 
-    /// MVP TRANSACTION 2: Releases the capital to the verified broker.
-    /// In this MVP, this is explicitly callable only by the buyer post-verification.
-    pub fn release(env: Env, caller: Address) {
-        caller.require_auth(); // Requires Freighter signature
-        
-        let buyer: Address = env.storage().instance().get(&DataKey::Buyer).unwrap();
-        if caller != buyer {
+    pub fn release(env: Env, caller: Address, lot_id: String) {
+        caller.require_auth();
+
+        let mut escrow: Escrow = env.storage().instance().get(&DataKey::Escrow(lot_id.clone()))
+            .expect("Escrow does not exist for this lot");
+
+        if caller != escrow.buyer {
             panic!("Unauthorized: Only the asset buyer can release these funds");
         }
 
-        let status: u32 = env.storage().instance().get(&DataKey::Status).unwrap();
-        if status != 0 {
+        if escrow.status != 0 {
             panic!("Transaction void: Funds are not currently in a locked state");
         }
 
-        let broker: Address = env.storage().instance().get(&DataKey::Broker).unwrap();
-        let token: Address = env.storage().instance().get(&DataKey::Token).unwrap();
-        let amount: i128 = env.storage().instance().get(&DataKey::Amount).unwrap();
+        escrow.status = 1;
+        env.storage().instance().set(&DataKey::Escrow(lot_id), &escrow);
 
-        // Update the contract state to prevent double-spending
-        env.storage().instance().set(&DataKey::Status, &1u32); // 1 = Released
-
-        // Route the capital to the broker's wallet
-        let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&env.current_contract_address(), &broker, &amount);
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(&env.current_contract_address(), &escrow.broker, &escrow.amount);
     }
 
-    /// MVP TRANSACTION 3: Refunds the capital securely back to the buyer.
-    /// Used if the transaction fails or documents are unverified.
-    pub fn refund(env: Env, caller: Address) {
-        caller.require_auth(); // Requires Freighter signature
-        
-        let buyer: Address = env.storage().instance().get(&DataKey::Buyer).unwrap();
-        if caller != buyer {
+    pub fn refund(env: Env, caller: Address, lot_id: String) {
+        caller.require_auth();
+
+        let mut escrow: Escrow = env.storage().instance().get(&DataKey::Escrow(lot_id.clone()))
+            .expect("Escrow does not exist for this lot");
+
+        if caller != escrow.buyer {
             panic!("Unauthorized: Only the asset buyer can trigger a refund");
         }
 
-        let status: u32 = env.storage().instance().get(&DataKey::Status).unwrap();
-        if status != 0 {
+        if escrow.status != 0 {
             panic!("Transaction void: Funds are not currently in a locked state");
         }
 
-        let token: Address = env.storage().instance().get(&DataKey::Token).unwrap();
-        let amount: i128 = env.storage().instance().get(&DataKey::Amount).unwrap();
+        escrow.status = 2;
+        env.storage().instance().set(&DataKey::Escrow(lot_id), &escrow);
 
-        // Update the contract state to reflect the voided transaction
-        env.storage().instance().set(&DataKey::Status, &2u32); // 2 = Refunded
-
-        // Return the capital safely to the buyer's Freighter wallet
-        let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&env.current_contract_address(), &buyer, &amount);
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(&env.current_contract_address(), &escrow.buyer, &escrow.amount);
     }
 
-    /// MVP TRANSACTION 4: Broker-initiated refund.
-    /// Callable only by the broker to return funds to the buyer (e.g., if
-    /// document verification fails on the broker side).
-    pub fn broker_refund(env: Env, caller: Address) {
+    pub fn broker_refund(env: Env, caller: Address, lot_id: String) {
         caller.require_auth();
-        let broker: Address = env.storage().instance().get(&DataKey::Broker).unwrap();
-        if caller != broker {
+
+        let mut escrow: Escrow = env.storage().instance().get(&DataKey::Escrow(lot_id.clone()))
+            .expect("Escrow does not exist for this lot");
+
+        if caller != escrow.broker {
             panic!("Unauthorized: Only the broker can trigger a broker refund");
         }
-        let status: u32 = env.storage().instance().get(&DataKey::Status).unwrap();
-        if status != 0 {
+
+        if escrow.status != 0 {
             panic!("Transaction void: Funds are not currently in a locked state");
         }
-        let buyer: Address = env.storage().instance().get(&DataKey::Buyer).unwrap();
-        let token: Address = env.storage().instance().get(&DataKey::Token).unwrap();
-        let amount: i128 = env.storage().instance().get(&DataKey::Amount).unwrap();
-        env.storage().instance().set(&DataKey::Status, &2u32); // 2 = Refunded
-        let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&env.current_contract_address(), &buyer, &amount);
+
+        escrow.status = 2;
+        env.storage().instance().set(&DataKey::Escrow(lot_id), &escrow);
+
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(&env.current_contract_address(), &escrow.buyer, &escrow.amount);
     }
 
-    /// DEMO UTILITY: Resets the escrow state so properties can be tested again.
-    /// This wipes all stored keys (Buyer, Broker, Token, Amount, Status).
-    /// Callable by any connected wallet for demo/testing purposes.
-    /// NOTE: This does NOT move any funds — it only clears the on-chain state.
-    /// In production, this function would be removed or restricted to an admin.
-    pub fn reset_escrow(env: Env, caller: Address) {
+    pub fn upload_docs(env: Env, caller: Address, lot_id: String, doc_hash: String) {
         caller.require_auth();
-        // Clear all escrow state
-        env.storage().instance().remove(&DataKey::Buyer);
-        env.storage().instance().remove(&DataKey::Broker);
-        env.storage().instance().remove(&DataKey::Token);
-        env.storage().instance().remove(&DataKey::Amount);
-        env.storage().instance().remove(&DataKey::Status);
+
+        let mut escrow: Escrow = env.storage().instance().get(&DataKey::Escrow(lot_id.clone()))
+            .expect("Escrow does not exist for this lot");
+
+        if caller != escrow.broker {
+            panic!("Unauthorized: Only the registered broker can upload documents");
+        }
+
+        if escrow.status != 0 {
+            panic!("Cannot upload docs: Escrow is not in a locked state");
+        }
+
+        escrow.doc_hash = Some(doc_hash);
+        escrow.docs_verified = true;
+        
+        env.storage().instance().set(&DataKey::Escrow(lot_id), &escrow);
     }
 
-    // ─── READ-ONLY GETTERS (for frontend state queries) ───────────────
-
-    /// Returns the buyer address stored in the escrow vault.
-    pub fn get_buyer(env: Env) -> Option<Address> {
-        env.storage().instance().get(&DataKey::Buyer)
+    pub fn reset_escrow(env: Env, caller: Address, lot_id: String) {
+        caller.require_auth();
+        env.storage().instance().remove(&DataKey::Escrow(lot_id));
     }
 
-    /// Returns the broker address stored in the escrow vault.
-    pub fn get_broker(env: Env) -> Option<Address> {
-        env.storage().instance().get(&DataKey::Broker)
-    }
-
-    /// Returns the token contract address used for the escrow.
-    pub fn get_token(env: Env) -> Option<Address> {
-        env.storage().instance().get(&DataKey::Token)
-    }
-
-    /// Returns the locked amount in the escrow vault.
-    pub fn get_amount(env: Env) -> Option<i128> {
-        env.storage().instance().get(&DataKey::Amount)
-    }
-
-    /// Returns the current status of the escrow: 0 = Locked, 1 = Released, 2 = Refunded.
-    pub fn get_status(env: Env) -> Option<u32> {
-        env.storage().instance().get(&DataKey::Status)
+    pub fn get_escrow(env: Env, lot_id: String) -> Option<Escrow> {
+        env.storage().instance().get(&DataKey::Escrow(lot_id))
     }
 }

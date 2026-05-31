@@ -1,155 +1,305 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::{Escrow, SAPrimePropertiesContract, SAPrimePropertiesContractClient};
     use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::{token, Address, Env};
+    use soroban_sdk::{token, Address, Env, String};
 
-    /// Utility function to instantiate test accounts and a mock asset
-    fn setup_test(env: &Env) -> (Address, Address, Address, token::Client) {
+    fn setup_test(
+        env: &Env,
+    ) -> (
+        Address,
+        Address,
+        Address,
+        Address,
+        token::Client,
+        token::StellarAssetClient,
+    ) {
         let buyer = Address::generate(env);
         let broker = Address::generate(env);
-        
+
         let token_admin = Address::generate(env);
-        let token_addr = env.register_stellar_asset_contract(token_admin);
+        let sac = env.register_stellar_asset_contract_v2(token_admin.clone());
+        let token_addr = sac.address();
         let token_client = token::Client::new(env, &token_addr);
-        
-        (buyer, broker, token_addr, token_client)
+        let admin_client = token::StellarAssetClient::new(env, &token_addr);
+
+        (buyer, broker, token_admin, token_addr, token_client, admin_client)
     }
 
-    // TEST 1: Happy Path - End-to-end execution of lock and release
     #[test]
     fn test_1_happy_path_lock_and_release() {
         let env = Env::default();
-        env.mock_all_auths(); // Mocks the Freighter wallet signature
-        let (buyer, broker, token_addr, token_client) = setup_test(&env);
-        
-        let contract_id = env.register_contract(None, SAPrimePropertiesContract);
-        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        env.mock_all_auths();
+        let (buyer, broker, _admin, token_addr, token_client, admin_client) = setup_test(&env);
 
-        token_client.mint(&buyer, &500_000);
-        
-        client.lock_funds(&buyer, &broker, &token_addr, &100_000);
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
+
+        admin_client.mint(&buyer, &500_000);
+
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
         assert_eq!(token_client.balance(&contract_id), 100_000);
 
-        client.release(&buyer);
+        client.release(&buyer, &lot_id);
         assert_eq!(token_client.balance(&broker), 100_000);
         assert_eq!(token_client.balance(&contract_id), 0);
     }
 
-    // TEST 2: Edge Case - Unauthorized caller attempts to release funds
     #[test]
     #[should_panic(expected = "Unauthorized: Only the asset buyer can release these funds")]
     fn test_2_edge_case_unauthorized_release() {
         let env = Env::default();
         env.mock_all_auths();
-        let (buyer, broker, token_addr, token_client) = setup_test(&env);
-        
-        let contract_id = env.register_contract(None, SAPrimePropertiesContract);
+        let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
+
+        let contract_id = env.register(SAPrimePropertiesContract, ());
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
 
-        token_client.mint(&buyer, &500_000);
-        client.lock_funds(&buyer, &broker, &token_addr, &100_000);
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
 
-        // An unverified third party attempts to forcefully release the funds
         let malicious_actor = Address::generate(&env);
-        client.release(&malicious_actor); 
+        client.release(&malicious_actor, &lot_id);
     }
 
-    // TEST 3: State Verification - Ensure contract holds exact funds after locking
     #[test]
     fn test_3_state_verification_after_lock() {
         let env = Env::default();
         env.mock_all_auths();
-        let (buyer, broker, token_addr, token_client) = setup_test(&env);
-        
-        let contract_id = env.register_contract(None, SAPrimePropertiesContract);
+        let (buyer, broker, _admin, token_addr, token_client, admin_client) = setup_test(&env);
+
+        let contract_id = env.register(SAPrimePropertiesContract, ());
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
 
-        token_client.mint(&buyer, &500_000);
-        client.lock_funds(&buyer, &broker, &token_addr, &100_000);
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
 
-        // Verify the contract state holds exactly the escrow amount
         assert_eq!(token_client.balance(&contract_id), 100_000);
-        assert_eq!(token_client.balance(&buyer), 400_000); 
+        assert_eq!(token_client.balance(&buyer), 400_000);
     }
 
-    // TEST 4: Edge Case - Double release / Re-entrancy prevention
     #[test]
     #[should_panic(expected = "Transaction void: Funds are not currently in a locked state")]
     fn test_4_edge_case_double_release_fails() {
         let env = Env::default();
         env.mock_all_auths();
-        let (buyer, broker, token_addr, token_client) = setup_test(&env);
-        
-        let contract_id = env.register_contract(None, SAPrimePropertiesContract);
+        let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
+
+        let contract_id = env.register(SAPrimePropertiesContract, ());
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
 
-        token_client.mint(&buyer, &500_000);
-        client.lock_funds(&buyer, &broker, &token_addr, &100_000);
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
 
-        client.release(&buyer);
-        
-        // Attempting to release a second time must trigger a panic
-        client.release(&buyer);
+        client.release(&buyer, &lot_id);
+        client.release(&buyer, &lot_id);
     }
 
-    // TEST 5: Happy Path - Escrow cancellation and refund
     #[test]
     fn test_5_happy_path_refund() {
         let env = Env::default();
         env.mock_all_auths();
-        let (buyer, broker, token_addr, token_client) = setup_test(&env);
-        
-        let contract_id = env.register_contract(None, SAPrimePropertiesContract);
-        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let (buyer, broker, _admin, token_addr, token_client, admin_client) = setup_test(&env);
 
-        token_client.mint(&buyer, &500_000);
-        
-        client.lock_funds(&buyer, &broker, &token_addr, &100_000);
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
+
+        admin_client.mint(&buyer, &500_000);
+
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
         assert_eq!(token_client.balance(&contract_id), 100_000);
 
-        // Buyer voids the transaction before document verification
-        client.refund(&buyer);
-        
-        // Ensure contract is zeroed out and buyer is fully refunded
+        client.refund(&buyer, &lot_id);
+
         assert_eq!(token_client.balance(&contract_id), 0);
         assert_eq!(token_client.balance(&buyer), 500_000);
     }
 
-    // TEST 6: Getter Verification - All getters return correct values after lock
     #[test]
-    fn test_6_getters_return_correct_values() {
+    fn test_6_get_escrow() {
         let env = Env::default();
         env.mock_all_auths();
-        let (buyer, broker, token_addr, token_client) = setup_test(&env);
-        
-        let contract_id = env.register_contract(None, SAPrimePropertiesContract);
+        let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
+
+        let contract_id = env.register(SAPrimePropertiesContract, ());
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
 
-        token_client.mint(&buyer, &500_000);
-        client.lock_funds(&buyer, &broker, &token_addr, &100_000);
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
 
-        // Verify all getters return the expected values
-        assert_eq!(client.get_buyer(), Some(buyer));
-        assert_eq!(client.get_broker(), Some(broker));
-        assert_eq!(client.get_token(), Some(token_addr));
-        assert_eq!(client.get_amount(), Some(100_000));
-        assert_eq!(client.get_status(), Some(0)); // 0 = Locked
+        let escrow = client.get_escrow(&lot_id).unwrap();
+        assert_eq!(escrow.buyer, buyer);
+        assert_eq!(escrow.broker, broker);
+        assert_eq!(escrow.token, token_addr);
+        assert_eq!(escrow.amount, 100_000);
+        assert_eq!(escrow.status, 0);
+        assert_eq!(escrow.docs_verified, false);
     }
 
-    // TEST 7: Getter Verification - Getters return None on uninitialized contract
     #[test]
-    fn test_7_getters_return_none_when_uninitialized() {
+    fn test_7_multi_vault_concurrent_reservations() {
         let env = Env::default();
-        
-        let contract_id = env.register_contract(None, SAPrimePropertiesContract);
-        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        env.mock_all_auths();
+        let (buyer1, broker, _admin, token_addr, token_client, admin_client) = setup_test(&env);
+        let buyer2 = Address::generate(&env);
+        admin_client.mint(&buyer1, &500_000);
+        admin_client.mint(&buyer2, &500_000);
 
-        // Before any lock_funds call, all getters should return None
-        assert_eq!(client.get_buyer(), None);
-        assert_eq!(client.get_broker(), None);
-        assert_eq!(client.get_token(), None);
-        assert_eq!(client.get_amount(), None);
-        assert_eq!(client.get_status(), None);
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_1 = String::from_str(&env, "LOT-07");
+        let lot_2 = String::from_str(&env, "LOT-42");
+
+        client.lock_funds(&lot_1, &buyer1, &broker, &token_addr, &100_000);
+        client.lock_funds(&lot_2, &buyer2, &broker, &token_addr, &200_000);
+
+        assert_eq!(token_client.balance(&contract_id), 300_000);
+
+        let e1 = client.get_escrow(&lot_1).unwrap();
+        assert_eq!(e1.buyer, buyer1);
+        assert_eq!(e1.amount, 100_000);
+
+        let e2 = client.get_escrow(&lot_2).unwrap();
+        assert_eq!(e2.buyer, buyer2);
+        assert_eq!(e2.amount, 200_000);
+    }
+
+    #[test]
+    fn test_8_upload_docs_happy_path() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
+
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
+
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
+
+        let doc_hash = String::from_str(&env, "abc123");
+        client.upload_docs(&broker, &lot_id, &doc_hash);
+
+        let escrow = client.get_escrow(&lot_id).unwrap();
+        assert_eq!(escrow.docs_verified, true);
+        assert_eq!(escrow.doc_hash, Some(doc_hash));
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized: Only the registered broker can upload documents")]
+    fn test_9_upload_docs_unauthorized() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
+
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
+
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
+
+        let doc_hash = String::from_str(&env, "abc123");
+        client.upload_docs(&buyer, &lot_id, &doc_hash);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot upload docs: Escrow is not in a locked state")]
+    fn test_10_upload_docs_wrong_status() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
+
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
+
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
+        client.release(&buyer, &lot_id);
+
+        let doc_hash = String::from_str(&env, "abc123");
+        client.upload_docs(&broker, &lot_id, &doc_hash);
+    }
+
+    #[test]
+    fn test_11_reset_clears_escrow() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
+
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
+
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
+
+        assert!(client.get_escrow(&lot_id).is_some());
+        client.reset_escrow(&buyer, &lot_id);
+        assert!(client.get_escrow(&lot_id).is_none());
+    }
+
+    #[test]
+    fn test_12_broker_refund_happy_path() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (buyer, broker, _admin, token_addr, token_client, admin_client) = setup_test(&env);
+
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
+
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
+
+        client.broker_refund(&broker, &lot_id);
+
+        assert_eq!(client.get_escrow(&lot_id).unwrap().status, 2);
+        assert_eq!(token_client.balance(&buyer), 500_000);
+        assert_eq!(token_client.balance(&contract_id), 0);
+    }
+
+    #[test]
+    fn test_13_relock_after_refund() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (buyer, broker, _admin, token_addr, token_client, admin_client) = setup_test(&env);
+
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
+
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
+        client.refund(&buyer, &lot_id);
+        assert_eq!(client.get_escrow(&lot_id).unwrap().status, 2);
+
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &200_000);
+        assert_eq!(client.get_escrow(&lot_id).unwrap().status, 0);
+        assert_eq!(client.get_escrow(&lot_id).unwrap().amount, 200_000);
+        assert_eq!(token_client.balance(&contract_id), 200_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "Vault Security: Escrow for this lot is already locked and active")]
+    fn test_14_cannot_double_lock_same_lot() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
+
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
+
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
     }
 }

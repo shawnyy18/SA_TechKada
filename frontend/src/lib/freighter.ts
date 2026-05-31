@@ -1,12 +1,13 @@
 /**
  * SA Prime Properties — Freighter Wallet Integration
- * 
+ *
  * Built for @stellar/freighter-api v6.0.1
- * 
+ *
  * v6 API returns OBJECTS, not primitives:
- *   isConnected()    → { isConnected: boolean, error?: { code, message } }
- *   requestAccess()  → { address: string, error?: { code, message } }
- *   getAddress()     → { address: string, error?: { code, message } }
+ *   isConnected()     → { isConnected: boolean, error?: { code, message } }
+ *   requestAccess()   → { address: string, error?: { code, message } }
+ *   getAddress()      → { address: string, error?: { code, message } }
+ *   getNetworkDetails() → { network, networkPassphrase, ... }
  *   signTransaction() → { signedTxXdr: string, signerAddress: string, error?: { code, message } }
  */
 import {
@@ -14,15 +15,9 @@ import {
   requestAccess as _requestAccess,
   getAddress as _getAddress,
   signTransaction as _signTransaction,
+  getNetworkDetails as _getNetworkDetails,
 } from "@stellar/freighter-api";
-
-/* ─── TYPES ────────────────────────────────────────────────────────── */
-
-interface FreighterError {
-  code: number;
-  message: string;
-  ext?: string[];
-}
+import { Networks } from "@stellar/stellar-sdk";
 
 /* ─── CONNECT WALLET ───────────────────────────────────────────────── */
 
@@ -33,7 +28,6 @@ interface FreighterError {
  * 3. Return the user's Stellar public key
  */
 export async function connectWallet(): Promise<string> {
-  // ── Step 1: Is the extension installed? ──
   const connResult = await _isConnected();
 
   if (connResult.error) {
@@ -47,7 +41,6 @@ export async function connectWallet(): Promise<string> {
     );
   }
 
-  // ── Step 2: Request access (triggers Freighter popup) ──
   const accessResult = await _requestAccess();
 
   if (accessResult.error) {
@@ -91,12 +84,40 @@ export async function getPublicKey(): Promise<string | null> {
   }
 }
 
+/* ─── GUARD TESTNET ────────────────────────────────────────────────── */
+
+/**
+ * Verifies that the user's Freighter wallet is set to Stellar Testnet.
+ * Throws a descriptive error if the network passphrase doesn't match.
+ *
+ * Must be called after connectWallet() succeeds.
+ */
+export async function guardTestnet(): Promise<void> {
+  try {
+    const details = await _getNetworkDetails();
+    const passphrase =
+      (details as any)?.networkPassphrase ??
+      (details as any)?.network_passphrase;
+
+    if (passphrase && passphrase !== Networks.TESTNET) {
+      throw new Error(
+        "Wrong network detected. Please switch Freighter to Stellar Testnet and try again."
+      );
+    }
+  } catch (e: any) {
+    // If we can't read network details, surface a helpful message
+    if (e.message?.includes("Wrong network")) throw e;
+    // Otherwise treat as non-fatal (older Freighter versions may not support this)
+    console.warn("[Freighter] Could not verify network:", e.message);
+  }
+}
+
 /* ─── SIGN TRANSACTION ─────────────────────────────────────────────── */
 
 /**
  * Signs a transaction XDR via Freighter.
  * Returns the signed XDR string.
- * 
+ *
  * @param xdr  - The transaction XDR to sign
  * @param opts - { networkPassphrase, address }
  * @returns    - The signed transaction XDR string

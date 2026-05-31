@@ -1,9 +1,9 @@
 /**
  * SA Prime Properties — Soroban Smart Contract Interaction Layer
- * 
+ *
  * Uses NATIVE XLM via the Stellar Asset Contract (SAC) on Testnet.
  * The XLM contract address is derived programmatically from the SDK.
- * 
+ *
  * Architecture:
  *   Frontend (React) → This Layer → Soroban RPC → Stellar Ledger → Smart Contract
  */
@@ -21,7 +21,13 @@ import {
   Address,
   xdr,
 } from "@stellar/stellar-sdk";
-import { SOROBAN_URL, CONTRACT_ADDRESS, BROKER_ADDRESS } from "./constants";
+import {
+  SOROBAN_URL,
+  CONTRACT_ADDRESS,
+  BROKER_ADDRESS,
+  HORIZON_URL,
+  PHP_CONVERSION_RATE,
+} from "./constants";
 import { signTransaction } from "./freighter";
 
 /* ─── RPC SERVER INSTANCE ──────────────────────────────────────────── */
@@ -33,18 +39,21 @@ const NETWORK_PASSPHRASE = Networks.TESTNET;
 /**
  * The native XLM Stellar Asset Contract (SAC) address on Testnet.
  * This is derived from the Asset.native() + network passphrase.
- * This is the Soroban-compatible contract wrapper for native XLM.
  */
 const XLM_SAC_ADDRESS = Asset.native().contractId(NETWORK_PASSPHRASE);
 
 /* ─── TYPES ────────────────────────────────────────────────────────── */
 
 export interface EscrowState {
-  status: number | null;   // 0=Locked, 1=Released, 2=Refunded
-  amount: number | null;   // in stroops (raw i128, 1 XLM = 10^7 stroops)
+  status: number | null; // 0=Locked, 1=Released, 2=Refunded
+  amount: number | null; // in stroops (raw i128, 1 XLM = 10^7 stroops)
   buyer: string | null;
   broker: string | null;
   token: string | null;
+  docsVerified?: boolean;
+  expiryLedger?: number | null; // Ledger sequence for 7-day escrow window
+  docHash?: string | null;      // SHA-256 credential hash anchored by broker
+  isDemo?: boolean;
 }
 
 export interface TransactionResult {
@@ -53,11 +62,105 @@ export interface TransactionResult {
   [key: string]: any;
 }
 
+/* ─── AMOUNT HELPERS ────────────────────────────────────────────────── */
+
+/** Convert human-readable XLM to stroops (1 XLM = 10,000,000 stroops) */
+export const xlmToStroops = (xlm: number): bigint =>
+  BigInt(Math.round(xlm * 10_000_000));
+
+/** Convert stroops to human-readable XLM */
+export const stroopsToXlm = (stroops: bigint | number): number =>
+  Number(stroops) / 10_000_000;
+
+/** Convert XLM amount to Philippine Peso equivalent */
+export const xlmToPhp = (xlm: number): string =>
+  (xlm * PHP_CONVERSION_RATE).toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+/** Format stroops as XLM with up to 4 decimal places */
+export const formatStroopsAsXlm = (stroops: number | null): string => {
+  if (stroops === null || stroops === undefined) return "0";
+  return (Number(stroops) / 1e7).toLocaleString("en-US", {
+    maximumFractionDigits: 4,
+  });
+};
+
+/* ─── CREDENTIAL HASH ───────────────────────────────────────────────── */
+
+/**
+ * Generates a SHA-256 hash of broker credentials using the Web Crypto API.
+ * No external libraries — pure browser-native cryptography.
+ *
+ * @param prc     - PRC Broker ID
+ * @param tct     - TCT/CCT Reference number
+ * @param zoning  - Municipal Zoning Permit number
+ * @returns       - Hex-encoded SHA-256 hash string
+ */
+export async function generateCredentialHash(
+  prc: string,
+  tct: string,
+  zoning: string
+): Promise<string> {
+  const combined = `${prc}|${tct}|${zoning}`;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(combined);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/* ─── XLM BALANCE FROM HORIZON ─────────────────────────────────────── */
+
+/**
+ * Fetches the native XLM balance for a Stellar address from Horizon REST API.
+ *
+ * @param address - The G... Stellar public key
+ * @returns       - XLM balance as a number, or null if account not found
+ */
+export async function getXlmBalance(address: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${HORIZON_URL}/accounts/${address}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const nativeBalance = data.balances?.find(
+      (b: any) => b.asset_type === "native"
+    );
+    return nativeBalance ? parseFloat(nativeBalance.balance) : null;
+  } catch {
+    return null;
+  }
+}
+
+/* ─── POLL ESCROW STATUS ─────────────────────────────────────────────── */
+
+/**
+ * Sets up a polling interval to continuously read escrow state.
+ * Returns a cleanup function to stop polling.
+ *
+ * @param callback    - Called with the latest EscrowState on each poll
+ * @param intervalMs  - Polling interval in milliseconds (default 10 seconds)
+ * @returns           - Cleanup function: call to stop polling
+ */
+export function pollEscrowStatus(
+  callback: (state: EscrowState) => void,
+  intervalMs = 10_000
+): () => void {
+  const tick = () =>
+    getContractStatus()
+      .then(callback)
+      .catch((e) => console.error("[Poll] escrow status:", e));
+
+  tick(); // Immediate first fetch
+  const id = setInterval(tick, intervalMs);
+  return () => clearInterval(id);
+}
+
 /* ─── RAW RPC HELPER ───────────────────────────────────────────────── */
 
 /**
  * Polls the Soroban RPC directly for transaction status using JSON-RPC.
- * This bypasses SDK abstractions for maximum reliability during demo.
  */
 async function getTransactionStatusRaw(hash: string): Promise<any> {
   const res = await fetch(SOROBAN_URL, {
@@ -79,10 +182,6 @@ async function getTransactionStatusRaw(hash: string): Promise<any> {
 
 /* ─── SIMULATION RETURN VALUE EXTRACTION ───────────────────────────── */
 
-/**
- * Extracts the return value from a Soroban simulation result.
- * Handles multiple SDK response shapes for cross-version compatibility.
- */
 function extractSimRetval(sim: any): xdr.ScVal {
   if (sim?.result?.retval) return sim.result.retval;
   const xdrB64 =
@@ -95,18 +194,11 @@ function extractSimRetval(sim: any): xdr.ScVal {
 
 /**
  * The universal Soroban transaction pipeline:
- * 
- *  1. Load the caller's Stellar account sequence number
- *  2. Build a transaction envelope with the contract operation
- *  3. Simulate on the RPC node (computes resource fees + footprint)
- *  4. Prepare the transaction (attaches simulation results)
- *  5. Send to Freighter for cryptographic signing
- *  6. Submit the signed transaction to the network
- *  7. Poll until the ledger confirms SUCCESS or FAILED
- * 
- * @param sourcePublicKey - The G... address of the caller (from Freighter)
- * @param operation       - The Soroban contract.call() operation
- * @returns               - The confirmed transaction result with hash
+ *  1. Load caller's account sequence number
+ *  2. Build a transaction with the contract operation
+ *  3. Simulate on RPC (computes resource fees + footprint)
+ *  4. Send to Freighter for signing
+ *  5. Submit to network and poll for confirmation
  */
 export async function invokeSorobanContract(
   sourcePublicKey: string,
@@ -114,10 +206,8 @@ export async function invokeSorobanContract(
 ): Promise<TransactionResult> {
   let step = "load account";
   try {
-    // ── Step 1: Fetch the account's current sequence number ──
     const account = await server.getAccount(sourcePublicKey);
 
-    // ── Step 2: Build the transaction envelope ──
     step = "build transaction";
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
@@ -127,11 +217,9 @@ export async function invokeSorobanContract(
       .setTimeout(30)
       .build();
 
-    // ── Step 3: Prepare (simulate + attach resource footprint) ──
     step = "prepare transaction";
     const preparedTx = await server.prepareTransaction(tx);
 
-    // ── Step 4: Sign via Freighter extension ──
     step = "Freighter signature";
     const signed = await signTransaction(preparedTx.toXDR(), {
       networkPassphrase: NETWORK_PASSPHRASE,
@@ -139,7 +227,6 @@ export async function invokeSorobanContract(
     });
     if ((signed as any)?.error) throw new Error((signed as any).error);
 
-    // Handle multiple Freighter response shapes
     const signedXdr =
       typeof signed === "string"
         ? signed
@@ -148,21 +235,21 @@ export async function invokeSorobanContract(
       throw new Error("Freighter returned an invalid signed transaction.");
     }
 
-    // ── Step 5: Parse and submit ──
     step = "parse signed XDR";
     const signedTx = TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE);
 
     step = "send transaction";
     const response = await server.sendTransaction(signedTx);
     if (response.status === "ERROR") {
-      throw new Error((response as any).errorResult?.toString() ?? "Send failed");
+      throw new Error(
+        (response as any).errorResult?.toString() ?? "Send failed"
+      );
     }
 
-    // ── Step 6: Poll until ledger confirmation ──
     step = "poll confirmation";
     let getResponse = await getTransactionStatusRaw(response.hash);
     let pollCount = 0;
-    const MAX_POLLS = 30; // ~30 seconds max wait
+    const MAX_POLLS = 30;
 
     while (getResponse?.status === "NOT_FOUND" && pollCount < MAX_POLLS) {
       await new Promise((r) => setTimeout(r, 1000));
@@ -171,15 +258,25 @@ export async function invokeSorobanContract(
     }
 
     if (getResponse?.status === "FAILED") {
-      throw new Error("Transaction failed on-chain. Check Stellar Expert for details.");
+      throw new Error(
+        "Transaction failed on-chain. Check Stellar Expert for details."
+      );
     }
     if (getResponse?.status !== "SUCCESS") {
-      throw new Error(`Unexpected status: ${getResponse?.status ?? "unknown"}`);
+      throw new Error(
+        `Unexpected status: ${getResponse?.status ?? "unknown"}`
+      );
     }
 
     return { ...getResponse, hash: response.hash };
   } catch (e: any) {
-    throw new Error(`[${step}] ${e?.message ?? e}`);
+    const msg = e?.message ?? String(e);
+    if (msg.includes("UnreachableCodeReached")) {
+      throw new Error(
+        `Transaction rejected by Smart Contract (UnreachableCodeReached). Ensure you are using the correct wallet and the escrow is in the valid state.`
+      );
+    }
+    throw new Error(`[${step}] ${msg}`);
   }
 }
 
@@ -209,120 +306,142 @@ async function readOnly(method: string, args: xdr.ScVal[] = []): Promise<any> {
 /* ─── PUBLIC API: CONTRACT STATE ───────────────────────────────────── */
 
 /**
- * Fetches the full escrow state from the deployed contract.
- * Calls all 5 getter functions in parallel for speed.
+ * Fetches the full escrow state for a specific lot.
  */
-export async function getContractStatus(): Promise<EscrowState> {
+export async function getEscrowState(lotId: string): Promise<EscrowState | null> {
   try {
-    const [buyer, broker, token, amount, status] = await Promise.all([
-      readOnly("get_buyer").catch(() => null),
-      readOnly("get_broker").catch(() => null),
-      readOnly("get_token").catch(() => null),
-      readOnly("get_amount").catch(() => null),
-      readOnly("get_status").catch(() => null),
-    ]);
-    return { buyer, broker, token, amount, status };
-  } catch (error) {
-    console.error("[SA Prime] Failed to read contract state:", error);
-    return { status: null, amount: null, buyer: null, broker: null, token: null };
+    const rawEscrow = await readOnly("get_escrow", [nativeToScVal(lotId, { type: "string" })]);
+    if (!rawEscrow) return null;
+
+    // Soroban returns structs as objects or arrays. Assuming object with named fields:
+    return {
+      buyer: rawEscrow.buyer ? rawEscrow.buyer.toString() : rawEscrow[0]?.toString(),
+      broker: rawEscrow.broker ? rawEscrow.broker.toString() : rawEscrow[1]?.toString(),
+      token: rawEscrow.token ? rawEscrow.token.toString() : rawEscrow[2]?.toString(),
+      amount: rawEscrow.amount !== undefined ? Number(rawEscrow.amount) : Number(rawEscrow[3]),
+      status: rawEscrow.status !== undefined ? Number(rawEscrow.status) : Number(rawEscrow[4]),
+      expiryLedger: rawEscrow.expiry_ledger !== undefined ? Number(rawEscrow.expiry_ledger) : Number(rawEscrow[5]),
+      docsVerified: rawEscrow.docs_verified !== undefined ? rawEscrow.docs_verified : rawEscrow[6],
+      docHash: rawEscrow.doc_hash !== undefined ? rawEscrow.doc_hash?.toString() : rawEscrow[7]?.toString(),
+      isDemo: false,
+    };
+  } catch (error: any) {
+    // If it fails (e.g. Escrow does not exist), return null
+    return null;
   }
+}
+
+/**
+ * Fetches all active escrows for all lots.
+ * Used by Vault, Broker Portal, and Landing pages.
+ */
+export async function getAllEscrows(lotIds: string[]): Promise<Record<string, EscrowState>> {
+  const escrows: Record<string, EscrowState> = {};
+  
+  // Fetch in parallel for speed
+  const promises = lotIds.map(async (lotId) => {
+    const state = await getEscrowState(lotId);
+    if (state) {
+      escrows[lotId] = state;
+    }
+  });
+
+  await Promise.all(promises);
+  return escrows;
 }
 
 /* ─── PUBLIC API: LOCK FUNDS (XLM) ─────────────────────────────────── */
 
-/**
- * Invokes the `lock_funds` method on the escrow contract.
- * Transfers native XLM from the buyer's Freighter wallet into the contract vault
- * via the XLM Stellar Asset Contract (SAC).
- * 
- * @param publicKey - The buyer's G... address
- * @param amount    - Amount in XLM (human-readable, e.g. 100)
- */
 export async function lockFunds(
   publicKey: string,
+  lotId: string,
   amount: number
 ): Promise<TransactionResult> {
-  // Convert human-readable XLM to stroops (1 XLM = 10,000,000 stroops)
   const amountStroops = BigInt(Math.round(amount * 1e7));
 
   const op = contract.call(
     "lock_funds",
-    Address.fromString(publicKey).toScVal(),       // buyer
-    Address.fromString(BROKER_ADDRESS).toScVal(),   // broker
-    Address.fromString(XLM_SAC_ADDRESS).toScVal(),  // token = native XLM SAC
-    nativeToScVal(amountStroops.toString(), { type: "i128" })  // amount in stroops
+    nativeToScVal(lotId, { type: "string" }),
+    Address.fromString(publicKey).toScVal(),
+    Address.fromString(BROKER_ADDRESS).toScVal(),
+    Address.fromString(XLM_SAC_ADDRESS).toScVal(),
+    nativeToScVal(amountStroops.toString(), { type: "i128" })
   );
 
   return invokeSorobanContract(publicKey, op);
 }
 
+/* ─── PUBLIC API: UPLOAD DOCS (BROKER) ─────────────────────────────── */
+
+export async function uploadDocs(
+  publicKey: string,
+  lotId: string,
+  docsHash: string
+): Promise<TransactionResult> {
+  const op = contract.call(
+    "upload_docs",
+    Address.fromString(publicKey).toScVal(),
+    nativeToScVal(lotId, { type: "string" }),
+    nativeToScVal(docsHash, { type: "string" })
+  );
+  return invokeSorobanContract(publicKey, op);
+}
+
 /* ─── PUBLIC API: RELEASE FUNDS ────────────────────────────────────── */
 
-/**
- * Invokes the `release` method. Transfers locked XLM to the broker.
- * Only callable by the registered buyer — enforced on-chain via require_auth().
- */
 export async function releaseFunds(
-  publicKey: string
+  publicKey: string,
+  lotId: string
 ): Promise<TransactionResult> {
   const op = contract.call(
     "release",
-    Address.fromString(publicKey).toScVal()
+    Address.fromString(publicKey).toScVal(),
+    nativeToScVal(lotId, { type: "string" })
   );
   return invokeSorobanContract(publicKey, op);
 }
 
 /* ─── PUBLIC API: REFUND FUNDS ─────────────────────────────────────── */
 
-/**
- * Invokes the `refund` method. Returns locked XLM to the buyer.
- * Only callable by the registered buyer — enforced on-chain via require_auth().
- */
 export async function refundFunds(
-  publicKey: string
+  publicKey: string,
+  lotId: string
 ): Promise<TransactionResult> {
   const op = contract.call(
     "refund",
-    Address.fromString(publicKey).toScVal()
+    Address.fromString(publicKey).toScVal(),
+    nativeToScVal(lotId, { type: "string" })
   );
   return invokeSorobanContract(publicKey, op);
 }
 
 /* ─── PUBLIC API: BROKER REFUND ────────────────────────────────────── */
 
-/**
- * Invokes the `broker_refund` method. Returns locked XLM to the buyer.
- * Only callable by the registered broker — enforced on-chain via require_auth().
- */
 export async function brokerRefund(
-  publicKey: string
+  publicKey: string,
+  lotId: string
 ): Promise<TransactionResult> {
   const op = contract.call(
     "broker_refund",
-    Address.fromString(publicKey).toScVal()
+    Address.fromString(publicKey).toScVal(),
+    nativeToScVal(lotId, { type: "string" })
   );
   return invokeSorobanContract(publicKey, op);
 }
 
 /* ─── PUBLIC API: RESET ESCROW (DEMO/TESTING) ──────────────────────── */
 
-/**
- * Invokes the `reset_escrow` method. Clears all on-chain escrow state
- * so properties become available again for testing.
- * Callable by any connected wallet (demo-mode only).
- * NOTE: This does NOT move funds — it only wipes the state.
- */
 export async function resetEscrow(
-  publicKey: string
+  publicKey: string,
+  lotId: string
 ): Promise<TransactionResult> {
   const op = contract.call(
     "reset_escrow",
-    Address.fromString(publicKey).toScVal()
+    Address.fromString(publicKey).toScVal(),
+    nativeToScVal(lotId, { type: "string" })
   );
   return invokeSorobanContract(publicKey, op);
 }
 
-/**
- * Exports the derived XLM SAC address for display purposes.
- */
+/** Export the derived XLM SAC address for display and lock_funds calls */
 export { XLM_SAC_ADDRESS };

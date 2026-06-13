@@ -1,131 +1,155 @@
 # SA Prime Properties
-Uncompromising Trust. Cryptographic Escrow for Premium Real Estate.
 
-## Problem
-International buyers and Overseas Filipino Workers (OFWs) remit billions annually to acquire premium real estate in the Philippines, yet face massive counterparty risk. The current friction involves wiring hundreds of thousands of pesos in initial reservation fees via unregulated OTC transfers or direct bank deposits to unverified brokers. This relies entirely on blind faith, resulting in high rates of capital loss, agent fraud, and zero financial recourse for the buyer when a transaction fails.
+[![CI](https://github.com/shawnyy18/SA_TechKada/actions/workflows/ci.yml/badge.svg)](https://github.com/shawnyy18/SA_TechKada/actions/workflows/ci.yml)
+[![Live Demo](https://img.shields.io/badge/demo-Vercel-black)](https://sa-tech-kada.vercel.app)
+[![Stellar](https://img.shields.io/badge/Stellar-Testnet-7c5cff)](https://stellar.expert/explorer/testnet)
 
-## Solution
-SA Prime Properties eliminates human vulnerability by deploying a decentralized, private escrow vault directly on the Stellar network. The user chooses Freighter, Albedo, or xBull through StellarWalletsKit, creates a client or broker profile, and locks their deposit in a Soroban smart contract. The capital is untouchable by the broker until legal transfer documents are verified. Stellar provides fast settlement, native token integration, and fractional-cent fees, making institutional-grade cross-border escrow viable for retail buyers.
+Cryptographic XLM escrow for premium Philippine real estate. Buyers reserve a property through a noncustodial Stellar wallet, brokers anchor document fingerprints on-chain, and funds can only be released after an independent verifier contract approves the document record.
 
-## Timeline
-Developed, tested, and deployed as an enterprise-grade MVP within a 24-hour hackathon sprint.
-- **Hours 1-4:** Soroban architecture design, state-machine mapping, and test-driven development (TDD).
-- **Hours 5-12:** Smart contract deployment to Stellar Testnet and wallet integration.
-- **Hours 13-24:** UI/UX frontend execution (Vite/React/Tailwind), prioritizing an ultra-minimalist, monochromatic private banking aesthetic.
-
-## Stellar Features Used
-- **Native XLM / Stellar Assets:** Insulates the buyer from cross-border FX volatility and ensures zero-friction settlement without expensive gas fees.
-- **Soroban Smart Contracts:** Replaces the traditional, expensive corporate escrow agent with a trustless, decentralized state machine.
-- **Stellar Authentication (`require_auth`):** Ensures cryptographic proof that only the authorized buyer can lock, release, or refund the capital, preventing third-party interception.
-- **StellarWalletsKit:** Offers Freighter, Albedo, and xBull from one connection modal and shared transaction-signing pipeline.
-- **Signed wallet login:** Creates a 24-hour, noncustodial browser session. Wallets without message signing use an explicit wallet-connection proof for this Testnet MVP.
-- **Role-based onboarding:** A wallet can create a client profile or submit a broker application. Broker actions remain restricted to the configured approved broker wallet.
-- **Contract events:** Typed `locked`, `verified`, `released`, `refunded`, and `cleared` events are polled from Soroban RPC and synchronized into the React UI.
-- **Transaction tracking:** Contract writes visibly progress through preparing, awaiting signature, pending, success, or failed states.
-
-## Level 2 Yellow Belt Evidence
-
-All required Level 2 items are implemented and verifiable on Stellar Testnet.
+## Submission Links
 
 - **Public repository:** [github.com/shawnyy18/SA_TechKada](https://github.com/shawnyy18/SA_TechKada)
-- **Live demo:** [sa-tech-kada.vercel.app](https://sa-tech-kada.vercel.app)
-- **Deployed contract:** [`CBIER3WKTHQDBRRFQN6XPN76Q7GNUAFMX3YLJMK3X7BZ44EDNSRQCFX5`](https://stellar.expert/explorer/testnet/contract/CBIER3WKTHQDBRRFQN6XPN76Q7GNUAFMX3YLJMK3X7BZ44EDNSRQCFX5)
-- **Contract deployment transaction:** [`85b1be0e...d7eb87b`](https://stellar.expert/explorer/testnet/tx/85b1be0e6eab272e052b11898ae3756b439f75f1ea3cef7fbcbaf3af5d7eb87b)
-- **Verified `lock_funds` call:** [`4b5320e7...aa6c0632`](https://stellar.expert/explorer/testnet/tx/4b5320e7de5e8b451397d58e67e801c92530b1e3bfdf3b64f55f1ff8aa6c0632)
-- **On-chain event:** The verified call emitted the contract's typed `locked` event for `LOT-YELLOW-LEVEL-2` and transferred 1 Testnet XLM into escrow.
-- **Meaningful commits:** The repository contains more than the required two commits, including separate account/wallet and contract/event changes.
+- **Live application:** [sa-tech-kada.vercel.app](https://sa-tech-kada.vercel.app)
+- **One-minute demo video:** [Watch or download the repository demo](https://github.com/shawnyy18/SA_TechKada/blob/main/docs/sa-prime-properties-demo.mp4?raw=1)
+- **Successful CI run:** [GitHub Actions run #1](https://github.com/shawnyy18/SA_TechKada/actions/runs/27476020503)
+- **Escrow contract:** [`CBOLG3UAH6JRTZ45CHKGTUMNUKZUFK67XDBZ4FCC7O4WXIOG4YYMQG4J`](https://stellar.expert/explorer/testnet/contract/CBOLG3UAH6JRTZ45CHKGTUMNUKZUFK67XDBZ4FCC7O4WXIOG4YYMQG4J)
+- **Document verifier:** [`CB3BDB54S7RDYO5L4XZOM4QSRRFB37GNCDPT5EB3WEXSFYZ3UOZG7YJU`](https://stellar.expert/explorer/testnet/contract/CB3BDB54S7RDYO5L4XZOM4QSRRFB37GNCDPT5EB3WEXSFYZ3UOZG7YJU)
+- **Inter-contract transaction:** [`e69b4cad...d260f55`](https://stellar.expert/explorer/testnet/tx/e69b4cad02bfc84c5bc0d51f19c3b92d2085231ab5af440c0fb2b62fdd260f55)
+- **Escrow deployment transaction:** [`ebfb3ac7...65422d5`](https://stellar.expert/explorer/testnet/tx/ebfb3ac7ca7ed5c1264c3d1f0f05d9f591064a0d54c8603864e35668965422d5)
 
-### Requirement Checklist
+## Advanced-Level Checklist
 
-- [x] StellarWalletsKit with Freighter, Albedo, and xBull
-- [x] Wallet not found/unavailable error
-- [x] User-rejected connection or signature error
-- [x] Insufficient XLM balance error before contract submission
-- [x] Soroban contract deployed on Testnet
-- [x] Contract read and write functions called from the frontend
-- [x] Pending, success, and failed transaction states visible
-- [x] Real-time contract event polling and UI state refresh
-- [x] Client and broker account onboarding
-- [x] 16 passing Soroban contract tests
+- [x] Advanced multi-lot Soroban escrow state machine
+- [x] Inter-contract communication with an independent document verifier
+- [x] Typed event streaming and five-second frontend synchronization
+- [x] GitHub Actions CI for contract tests, frontend tests, type-checking, and builds
+- [x] Manual, secret-backed smart contract deployment workflow
+- [x] Mobile-responsive navigation and property experience
+- [x] Wallet, balance, RPC, contract, and loading-state error handling
+- [x] 20 passing contract tests and 7 passing frontend tests
+- [x] Production deployment on Vercel
+- [x] More than 10 meaningful Git commits
+- [x] Complete documentation, screenshots, and one-minute demo video
 
-### Wallet Options Screenshot
+## Architecture
 
-![StellarWalletsKit options showing Albedo, xBull, and Freighter](docs/yellow-belt-wallet-options.png)
+```mermaid
+flowchart LR
+    UI[React + Vite frontend] --> KIT[StellarWalletsKit]
+    KIT --> WALLET[Freighter / Albedo / xBull]
+    UI --> RPC[Soroban RPC event stream]
+    WALLET --> ESCROW[SA Prime Escrow Contract]
+    ESCROW --> SAC[Native XLM SAC]
+    ESCROW --> VERIFY[Document Verifier Contract]
+    VERIFY --> EVENTS[Document verified event]
+    ESCROW --> EVENTS2[Escrow state events]
+    EVENTS --> RPC
+    EVENTS2 --> RPC
+```
 
-The signed browser session is intentionally frontend-only for this Testnet MVP. Before production or Mainnet, replace local profile storage with a server-issued session using SEP-10-style challenge verification, store broker applications in a database, and integrate real broker KYC/licensing review.
+### Contract Responsibilities
 
-## Run in Antigravity
+The **escrow contract** owns the XLM reservation state, buyer/broker authorization, document gate, release, refund, and lifecycle events. The **document verifier contract** only accepts calls authorized by the configured escrow contract, validates the SHA-256 document fingerprint, stores an independent verification record, and emits its own event.
+
+The `upload_docs` transaction proves inter-contract communication on Testnet: one signed call produced both the verifier's `document` event and the escrow contract's `verified` event.
+
+## Stellar Features
+
+- StellarWalletsKit with Freighter, Albedo, and xBull
+- Native XLM through the Stellar Asset Contract
+- Soroban `require_auth` authorization trees
+- Persistent and instance contract storage
+- Typed contract events for `locked`, `verified`, `released`, `refunded`, and `cleared`
+- RPC transaction simulation, submission, status polling, and event queries
+- Client and broker onboarding with guarded broker routes
+
+## Error and Loading UX
+
+The frontend distinguishes wallet unavailable, wallet rejection, wrong network, insufficient XLM, RPC simulation failure, on-chain failure, and unexpected transaction status. Contract submissions visibly move through `preparing`, `awaiting signature`, `pending`, `success`, or `failed` states.
+
+## Local Setup
 
 ```bash
-cd frontend
+git clone https://github.com/shawnyy18/SA_TechKada.git
+cd SA_TechKada/frontend
 cp .env.example .env
-npm install
+npm ci
 npm run dev
 ```
 
-In a second terminal, run the checks:
+The frontend runs at `http://localhost:3000`.
+
+## Tests and Builds
 
 ```bash
+# Contract tests: 20 passing across two contracts
+cargo test --workspace
+
+# Frontend tests: 7 passing across three test files
 cd frontend
+npm test
 npm run lint
 npm run build
-
-cd ../contracts/SA-Prime-Properties
-cargo test
 ```
 
-## Vision and Purpose
-Founded on the S.A. (Shawn Ashlee) principle of uncompromising asset protection, our vision is to redefine private wealth management for the modern international buyer. We are merging bespoke, luxury Web2 user interfaces with the bulletproof Web3 financial security of the Stellar network to ensure family legacies are protected by code, not promises.
+Contract tests cover authorization, double locking, release/refund transitions, document requirements, active-escrow protection, verifier initialization, invalid hashes, and the full cross-contract verification path. Frontend tests cover account/session persistence, Stellar amount conversions, credential hashing, and pending transaction rendering.
 
-## Prerequisites
-Ensure your local development environment is configured for Stellar smart contract compilation:
-- Rust (Edition 2021) and Cargo installed.
-- Soroban CLI v20.0.0+ (or Stellar CLI) installed globally.
-- WebAssembly (Wasm) target installed via: `rustup target add wasm32-unknown-unknown`
-- A Stellar Testnet funded account.
+## CI/CD
 
-## How to Build
-Compile the smart contract into a WebAssembly (Wasm) binary optimized for the Stellar network:
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+1. Formats, tests, and builds both Soroban contracts.
+2. Runs frontend tests and TypeScript checks.
+3. Produces the Vite production build.
+4. Uploads Wasm and frontend build artifacts.
+
+`.github/workflows/deploy-contracts.yml` is a manual deployment workflow. Add `STELLAR_TESTNET_SECRET_KEY` to the GitHub `testnet` environment, then run **Deploy Soroban Contracts** from the Actions tab. The workflow deploys both contracts, initializes their trusted addresses, writes `deployment.json`, and uploads the manifest as an artifact.
+
+For a local Testnet deployment using a configured Stellar identity:
 
 ```bash
-cd contracts/SA-Prime-Properties
-stellar contract build
+STELLAR_SOURCE=deployer STELLAR_NETWORK=testnet \
+  ./scripts/deploy-testnet.sh deployment.json
 ```
 
-## How to Test
-Run the comprehensive test suite to verify the state-machine logic and security boundaries:
+## Verified Testnet Interaction
 
-```bash
-cd contracts/SA-Prime-Properties
-cargo test
+The deployed contracts were initialized and exercised on June 14, 2026 Philippine time.
+
+```text
+Escrow:   CBOLG3UAH6JRTZ45CHKGTUMNUKZUFK67XDBZ4FCC7O4WXIOG4YYMQG4J
+Verifier: CB3BDB54S7RDYO5L4XZOM4QSRRFB37GNCDPT5EB3WEXSFYZ3UOZG7YJU
+Lot:      LOT-INTERCONTRACT
+Action:   upload_docs -> verifier.verify -> two typed events
+Tx:       e69b4cad02bfc84c5bc0d51f19c3b92d2085231ab5af440c0fb2b62fdd260f55
 ```
 
-## How to Deploy
-Deploy the compiled Wasm binary to the Stellar Testnet. You will need a funded testnet identity (e.g., `alice`):
+## Submission Evidence
 
-```bash
-stellar contract deploy \
-  --wasm ../../target/wasm32v1-none/release/SA_Prime_Properties.wasm \
-  --source alice \
-  --network testnet
-```
+### Mobile Responsive UI
 
-## Sample CLI Invocation
-Here is an example of locking funds (reserving a property) using the Soroban CLI:
+![SA Prime Properties mobile interface](docs/level-next-mobile-responsive.png)
 
-```bash
-stellar contract invoke \
-  --id CBIER3WKTHQDBRRFQN6XPN76Q7GNUAFMX3YLJMK3X7BZ44EDNSRQCFX5 \
-  --source alice \
-  --network testnet \
-  -- \
-  lock_funds \
-  --lot_id "LOT-07" \
-  --buyer "G...BUYER_ADDRESS..." \
-  --broker "GDMHW3FNKUHNVUMFZQZ325WRFYCRAR3CWYZ7BRGCN2U4L63VNDDOWNAW" \
-  --token "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC" \
-  --amount "5000000000"
-```
+### CI/CD Pipeline
+
+![Successful GitHub Actions frontend and Soroban pipeline](docs/level-next-ci-pipeline.png)
+
+### Automated Tests
+
+![Twenty contract tests and seven frontend tests passing](docs/level-next-test-output.png)
+
+### Multi-Wallet Login
+
+![StellarWalletsKit wallet choices](docs/yellow-belt-wallet-options.png)
+
+## Production Notes
+
+- Environment-specific contract IDs and endpoints are supplied through Vite variables.
+- Testnet credentials remain in wallet or CI secret storage and are never committed.
+- Contract deployment is reproducible and emits a machine-readable manifest.
+- Smart contract writes are authorized, simulated before signing, and confirmed through RPC.
+- Mainnet deployment should add formal contract auditing, server-verified SEP-10 authentication, broker KYC storage, monitoring, and incident response.
 
 ## License
-MIT License
+
+MIT

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{Escrow, SAPrimePropertiesContract, SAPrimePropertiesContractClient};
+    use crate::{SAPrimePropertiesContract, SAPrimePropertiesContractClient};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{token, Address, Env, String};
 
@@ -11,8 +11,8 @@ mod tests {
         Address,
         Address,
         Address,
-        token::Client,
-        token::StellarAssetClient,
+        token::Client<'_>,
+        token::StellarAssetClient<'_>,
     ) {
         let buyer = Address::generate(env);
         let broker = Address::generate(env);
@@ -41,6 +41,7 @@ mod tests {
         client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
         assert_eq!(token_client.balance(&contract_id), 100_000);
 
+        client.upload_docs(&broker, &lot_id, &String::from_str(&env, "verified-docs"));
         client.release(&buyer, &lot_id);
         assert_eq!(token_client.balance(&broker), 100_000);
         assert_eq!(token_client.balance(&contract_id), 0);
@@ -95,6 +96,7 @@ mod tests {
         admin_client.mint(&buyer, &500_000);
         client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
 
+        client.upload_docs(&broker, &lot_id, &String::from_str(&env, "verified-docs"));
         client.release(&buyer, &lot_id);
         client.release(&buyer, &lot_id);
     }
@@ -222,6 +224,7 @@ mod tests {
 
         admin_client.mint(&buyer, &500_000);
         client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
+        client.upload_docs(&broker, &lot_id, &String::from_str(&env, "verified-docs"));
         client.release(&buyer, &lot_id);
 
         let doc_hash = String::from_str(&env, "abc123");
@@ -242,8 +245,39 @@ mod tests {
         client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
 
         assert!(client.get_escrow(&lot_id).is_some());
+        client.refund(&buyer, &lot_id);
         client.reset_escrow(&buyer, &lot_id);
         assert!(client.get_escrow(&lot_id).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "Release blocked: Broker documents have not been verified")]
+    fn test_15_release_requires_verified_documents() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
+
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
+        client.release(&buyer, &lot_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot clear an active escrow while funds are locked")]
+    fn test_16_cannot_reset_active_escrow() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
+        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
+        let lot_id = String::from_str(&env, "LOT-07");
+
+        admin_client.mint(&buyer, &500_000);
+        client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
+        client.reset_escrow(&buyer, &lot_id);
     }
 
     #[test]

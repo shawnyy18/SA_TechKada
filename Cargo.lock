@@ -6,6 +6,7 @@ version = 4
 name = "SA-Prime-Properties"
 version = "0.0.0"
 dependencies = [
+ "document-verifier",
  "soroban-sdk",
 ]
 
@@ -488,6 +489,13 @@ dependencies = [
  "const-oid",
  "crypto-common",
  "subtle",
+]
+
+[[package]]
+name = "document-verifier"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
 ]
 
 [[package]]

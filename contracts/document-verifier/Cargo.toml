@@ -1,6 +1,6 @@
 [package]
-name = "SA-Prime-Properties"
-version = "0.0.0"
+name = "document-verifier"
+version = "0.1.0"
 edition = "2021"
 publish = false
 
@@ -13,4 +13,3 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-document-verifier = { path = "../document-verifier" }

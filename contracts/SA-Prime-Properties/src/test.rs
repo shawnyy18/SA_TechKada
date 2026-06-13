@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{SAPrimePropertiesContract, SAPrimePropertiesContractClient};
+    use document_verifier::{DocumentVerifierContract, DocumentVerifierContractClient};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{token, Address, Env, String};
 
@@ -23,7 +24,24 @@ mod tests {
         let token_client = token::Client::new(env, &token_addr);
         let admin_client = token::StellarAssetClient::new(env, &token_addr);
 
-        (buyer, broker, token_admin, token_addr, token_client, admin_client)
+        (
+            buyer,
+            broker,
+            token_admin,
+            token_addr,
+            token_client,
+            admin_client,
+        )
+    }
+
+    fn setup_contracts(env: &Env) -> Address {
+        let escrow_id = env.register(SAPrimePropertiesContract, ());
+        let verifier_id = env.register(DocumentVerifierContract, ());
+        let admin = Address::generate(env);
+
+        DocumentVerifierContractClient::new(env, &verifier_id).initialize(&escrow_id);
+        SAPrimePropertiesContractClient::new(env, &escrow_id).initialize(&admin, &verifier_id);
+        escrow_id
     }
 
     #[test]
@@ -32,7 +50,7 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
@@ -41,7 +59,11 @@ mod tests {
         client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
         assert_eq!(token_client.balance(&contract_id), 100_000);
 
-        client.upload_docs(&broker, &lot_id, &String::from_str(&env, "verified-docs"));
+        client.upload_docs(
+            &broker,
+            &lot_id,
+            &String::from_str(&env, "0123456789abcdef0123456789abcdef"),
+        );
         client.release(&buyer, &lot_id);
         assert_eq!(token_client.balance(&broker), 100_000);
         assert_eq!(token_client.balance(&contract_id), 0);
@@ -54,7 +76,7 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
@@ -71,7 +93,7 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
@@ -89,14 +111,18 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
         admin_client.mint(&buyer, &500_000);
         client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
 
-        client.upload_docs(&broker, &lot_id, &String::from_str(&env, "verified-docs"));
+        client.upload_docs(
+            &broker,
+            &lot_id,
+            &String::from_str(&env, "0123456789abcdef0123456789abcdef"),
+        );
         client.release(&buyer, &lot_id);
         client.release(&buyer, &lot_id);
     }
@@ -107,7 +133,7 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
@@ -128,7 +154,7 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
@@ -153,7 +179,7 @@ mod tests {
         admin_client.mint(&buyer1, &500_000);
         admin_client.mint(&buyer2, &500_000);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_1 = String::from_str(&env, "LOT-07");
         let lot_2 = String::from_str(&env, "LOT-42");
@@ -178,19 +204,41 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
         admin_client.mint(&buyer, &500_000);
         client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
 
-        let doc_hash = String::from_str(&env, "abc123");
+        let doc_hash = String::from_str(&env, "abcdef0123456789abcdef0123456789");
         client.upload_docs(&broker, &lot_id, &doc_hash);
 
         let escrow = client.get_escrow(&lot_id).unwrap();
         assert_eq!(escrow.docs_verified, true);
         assert_eq!(escrow.doc_hash, Some(doc_hash));
+    }
+
+    #[test]
+    fn test_17_inter_contract_document_verification() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
+        let escrow_id = setup_contracts(&env);
+        let escrow_client = SAPrimePropertiesContractClient::new(&env, &escrow_id);
+        let verifier_id = escrow_client.get_verifier().unwrap();
+        let verifier_client = DocumentVerifierContractClient::new(&env, &verifier_id);
+        let lot_id = String::from_str(&env, "LOT-INTEROP");
+        let doc_hash = String::from_str(&env, "0123456789abcdef0123456789abcdef");
+
+        admin_client.mint(&buyer, &500_000);
+        escrow_client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
+        escrow_client.upload_docs(&broker, &lot_id, &doc_hash);
+
+        let verification = verifier_client.get_verification(&lot_id).unwrap();
+        assert_eq!(verification.broker, broker);
+        assert_eq!(verification.doc_hash, doc_hash);
+        assert!(escrow_client.get_escrow(&lot_id).unwrap().docs_verified);
     }
 
     #[test]
@@ -200,14 +248,14 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
         admin_client.mint(&buyer, &500_000);
         client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
 
-        let doc_hash = String::from_str(&env, "abc123");
+        let doc_hash = String::from_str(&env, "abcdef0123456789abcdef0123456789");
         client.upload_docs(&buyer, &lot_id, &doc_hash);
     }
 
@@ -218,16 +266,20 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
         admin_client.mint(&buyer, &500_000);
         client.lock_funds(&lot_id, &buyer, &broker, &token_addr, &100_000);
-        client.upload_docs(&broker, &lot_id, &String::from_str(&env, "verified-docs"));
+        client.upload_docs(
+            &broker,
+            &lot_id,
+            &String::from_str(&env, "0123456789abcdef0123456789abcdef"),
+        );
         client.release(&buyer, &lot_id);
 
-        let doc_hash = String::from_str(&env, "abc123");
+        let doc_hash = String::from_str(&env, "abcdef0123456789abcdef0123456789");
         client.upload_docs(&broker, &lot_id, &doc_hash);
     }
 
@@ -237,7 +289,7 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
@@ -256,7 +308,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
@@ -271,7 +323,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
@@ -286,7 +338,7 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
@@ -306,7 +358,7 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 
@@ -328,7 +380,7 @@ mod tests {
         env.mock_all_auths();
         let (buyer, broker, _admin, token_addr, _token_client, admin_client) = setup_test(&env);
 
-        let contract_id = env.register(SAPrimePropertiesContract, ());
+        let contract_id = setup_contracts(&env);
         let client = SAPrimePropertiesContractClient::new(&env, &contract_id);
         let lot_id = String::from_str(&env, "LOT-07");
 

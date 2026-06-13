@@ -26,9 +26,15 @@ import {
   CONTRACT_ADDRESS,
   BROKER_ADDRESS,
   HORIZON_URL,
-  PHP_CONVERSION_RATE,
 } from "./constants";
 import { signTransaction } from "./freighter";
+export {
+  formatStroopsAsXlm,
+  generateCredentialHash,
+  stroopsToXlm,
+  xlmToPhp,
+  xlmToStroops,
+} from "./stellar-utils";
 
 /* ─── RPC SERVER INSTANCE ──────────────────────────────────────────── */
 
@@ -74,55 +80,6 @@ function publishTransactionStatus(update: TransactionStatusUpdate): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("sa-prime:transaction-status", { detail: update }));
   }
-}
-
-/* ─── AMOUNT HELPERS ────────────────────────────────────────────────── */
-
-/** Convert human-readable XLM to stroops (1 XLM = 10,000,000 stroops) */
-export const xlmToStroops = (xlm: number): bigint =>
-  BigInt(Math.round(xlm * 10_000_000));
-
-/** Convert stroops to human-readable XLM */
-export const stroopsToXlm = (stroops: bigint | number): number =>
-  Number(stroops) / 10_000_000;
-
-/** Convert XLM amount to Philippine Peso equivalent */
-export const xlmToPhp = (xlm: number): string =>
-  (xlm * PHP_CONVERSION_RATE).toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-
-/** Format stroops as XLM with up to 4 decimal places */
-export const formatStroopsAsXlm = (stroops: number | null): string => {
-  if (stroops === null || stroops === undefined) return "0";
-  return (Number(stroops) / 1e7).toLocaleString("en-US", {
-    maximumFractionDigits: 4,
-  });
-};
-
-/* ─── CREDENTIAL HASH ───────────────────────────────────────────────── */
-
-/**
- * Generates a SHA-256 hash of broker credentials using the Web Crypto API.
- * No external libraries — pure browser-native cryptography.
- *
- * @param prc     - PRC Broker ID
- * @param tct     - TCT/CCT Reference number
- * @param zoning  - Municipal Zoning Permit number
- * @returns       - Hex-encoded SHA-256 hash string
- */
-export async function generateCredentialHash(
-  prc: string,
-  tct: string,
-  zoning: string
-): Promise<string> {
-  const combined = `${prc}|${tct}|${zoning}`;
-  const encoder = new TextEncoder();
-  const data = encoder.encode(combined);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /* ─── XLM BALANCE FROM HORIZON ─────────────────────────────────────── */

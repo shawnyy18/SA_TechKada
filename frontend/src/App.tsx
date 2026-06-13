@@ -36,16 +36,16 @@ export default function App() {
     <Router>
       <div className="min-h-screen flex flex-col font-sans text-off-white selection:bg-gold/30">
         {/* ── Navigation Header ── */}
-        <header className="h-20 border-b border-gold/15 flex items-center px-6 bg-surface/70 backdrop-blur-md sticky top-0 z-50">
+        <header className="h-20 border-b border-gold/15 flex items-center px-4 sm:px-6 bg-surface/70 backdrop-blur-md sticky top-0 z-50">
           <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-4">
             {/* Wordmark */}
-            <Link to="/" className="flex items-center gap-4 shrink-0">
+            <Link to="/" className="flex items-center gap-3 sm:gap-4 shrink-0">
               <div className="w-10 h-10 border-2 border-gold rounded-lg flex items-center justify-center rotate-45">
                 <span className="-rotate-45 text-xl font-bold italic text-gold leading-none">
                   S
                 </span>
               </div>
-              <div className="flex flex-col">
+              <div className="hidden sm:flex flex-col">
                 <h1 className="font-serif text-lg leading-none tracking-wide text-gold-light">
                   SA PRIME PROPERTIES
                 </h1>
@@ -98,7 +98,7 @@ export default function App() {
             </nav>
 
             {/* Right — TESTNET badge + Wallet */}
-            <div className="flex items-center gap-4 shrink-0">
+            <div className="flex items-center gap-2 sm:gap-4 shrink-0">
               {/* TESTNET badge — always visible */}
               <div className="hidden md:flex flex-col items-end">
                 <div className="flex items-center gap-1.5 px-3 py-1 bg-amber/10 border border-amber/30 rounded-full">
@@ -123,7 +123,7 @@ export default function App() {
         </header>
 
         {/* ── Main Content ── */}
-        <main className="flex-1">
+        <main className="flex-1 pb-20 md:pb-0">
           <Routes>
             {/* Buyer Routes */}
             <Route path="/" element={<Landing />} />
@@ -163,6 +163,27 @@ export default function App() {
             />
           </Routes>
         </main>
+
+        <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 grid grid-cols-3 border-t border-gold/20 bg-surface/95 backdrop-blur-xl safe-area-bottom">
+          {[
+            { to: "/", label: "Properties" },
+            { to: "/vault", label: "Trust Vault" },
+            { to: "/broker", label: profile?.role === "broker" ? "Broker" : "Apply" },
+          ].map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === "/"}
+              className={({ isActive }) =>
+                `min-h-16 flex items-center justify-center px-2 text-[10px] font-mono uppercase tracking-wider border-r border-gold/10 last:border-r-0 ${
+                  isActive ? "text-gold bg-gold/10" : "text-muted"
+                }`
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
 
         {/* ── Footer ── */}
         <footer className="border-t border-gold/10 bg-surface py-8">

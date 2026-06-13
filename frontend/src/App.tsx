@@ -5,20 +5,32 @@
  * buyer routes, and broker portal routes.
  */
 import { useState } from "react";
-import { BrowserRouter as Router, Routes, Route, Link, NavLink } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Link, NavLink, Navigate } from "react-router-dom";
 import { Landing } from "./pages/Landing";
 import { Reserve } from "./pages/Reserve";
 import { Vault } from "./pages/Vault";
-import { Broker } from "./pages/Broker";
-import { BrokerEscrow } from "./pages/BrokerEscrow";
 // ── New Broker Portal (app/broker/ convention) ──
 import { BrokerPage } from "./app/broker/page";
 import { BrokerEscrowDetail } from "./app/broker/escrow/[lotId]/page";
 import { Toaster } from "./components/TransactionToast";
 import { WalletConnect } from "./components/WalletConnect";
+import { AccountSetup } from "./components/AccountSetup";
+import { TransactionStatus } from "./components/TransactionStatus";
+import { getAccountProfile, type AccountProfile } from "./lib/account";
 
 export default function App() {
   const [publicKey, setPublicKey] = useState<string | null>(null);
+  const [profile, setProfile] = useState<AccountProfile | null>(null);
+
+  const handleConnect = (address: string) => {
+    setPublicKey(address);
+    setProfile(getAccountProfile(address));
+  };
+
+  const handleDisconnect = () => {
+    setPublicKey(null);
+    setProfile(null);
+  };
 
   return (
     <Router>
@@ -81,7 +93,7 @@ export default function App() {
                 }
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-amber" />
-                Broker Portal
+                {profile?.role === "broker" ? "Broker Portal" : "Broker Apply"}
               </NavLink>
             </nav>
 
@@ -102,8 +114,8 @@ export default function App() {
 
               <WalletConnect
                 publicKey={publicKey}
-                onConnect={(pk) => setPublicKey(pk)}
-                onDisconnect={() => setPublicKey(null)}
+                onConnect={handleConnect}
+                onDisconnect={handleDisconnect}
                 compact
               />
             </div>
@@ -118,24 +130,36 @@ export default function App() {
             <Route
               path="/reserve/:lotId"
               element={
-                <Reserve publicKey={publicKey} onConnect={setPublicKey} />
+                <Reserve publicKey={publicKey} onConnect={handleConnect} />
               }
             />
             <Route
               path="/vault"
-              element={<Vault publicKey={publicKey} onConnect={setPublicKey} />}
+              element={<Vault publicKey={publicKey} onConnect={handleConnect} />}
             />
 
             {/* Broker Routes — now served from app/broker/ */}
             <Route
               path="/broker"
               element={
-                <BrokerPage publicKey={publicKey} onConnect={setPublicKey} />
+                profile?.role === "broker" ? (
+                  <BrokerPage publicKey={publicKey} onConnect={handleConnect} />
+                ) : publicKey ? (
+                  <Navigate to="/" replace />
+                ) : (
+                  <BrokerPage publicKey={publicKey} onConnect={handleConnect} />
+                )
               }
             />
             <Route
               path="/broker/escrow/:lotId"
-              element={<BrokerEscrowDetail publicKey={publicKey} />}
+              element={
+                profile?.role === "broker" ? (
+                  <BrokerEscrowDetail publicKey={publicKey} />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              }
             />
           </Routes>
         </main>
@@ -156,6 +180,10 @@ export default function App() {
 
       {/* Global Toast Notifications */}
       <Toaster />
+      <TransactionStatus />
+      {publicKey && !profile && (
+        <AccountSetup address={publicKey} onComplete={setProfile} />
+      )}
     </Router>
   );
 }

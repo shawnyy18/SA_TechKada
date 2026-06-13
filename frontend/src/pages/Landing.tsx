@@ -11,6 +11,7 @@ import { getAllEscrows } from "@/lib/stellar";
 import { Loader2, Shield, TrendingUp, Globe, Lock } from "lucide-react";
 import { ImpactBar } from "@/app/components/ImpactBar";
 import { ActivityFeed } from "@/app/components/ActivityFeed";
+import { LiveContractEvents } from "@/components/LiveContractEvents";
 
 export function Landing() {
   const [lots, setLots] = useState(SAMPLE_LOTS);
@@ -51,7 +52,11 @@ export function Landing() {
 
     fetchLiveState();
     const interval = setInterval(fetchLiveState, 10000);
-    return () => clearInterval(interval);
+    window.addEventListener("sa-prime:contract-event", fetchLiveState);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("sa-prime:contract-event", fetchLiveState);
+    };
   }, []);
 
   return (
@@ -116,6 +121,7 @@ export function Landing() {
 
       {/* ── Live Activity Feed Ticker ── */}
       <ActivityFeed />
+      <LiveContractEvents />
 
       {/* ── OFW Stats Bar ── */}
       <section className="border-b border-gold/10 bg-surface/60">
@@ -196,7 +202,7 @@ export function Landing() {
               {
                 step: "01",
                 title: "Connect Wallet",
-                desc: "Link your Freighter Wallet — your cryptographic identity on Stellar.",
+                desc: "Choose Freighter, Albedo, or xBull as your cryptographic identity on Stellar.",
                 color: "text-gold",
               },
               {

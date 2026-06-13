@@ -2,7 +2,7 @@
  * SA Prime Properties — Reserve Flow Page
  *
  * 4-step property reservation flow:
- *  Step 1: Connect Wallet (Freighter, Testnet guard)
+ *  Step 1: Connect Wallet (StellarWalletsKit, Testnet guard)
  *  Step 2: Lock Funds (XLM + PHP dual display, Soroban call)
  *  Step 3: Awaiting Broker Docs (48hr countdown, required docs list)
  *  Step 4: Release or Refund (only when docsVerified, status must be 0)
@@ -244,7 +244,7 @@ export function Reserve({ publicKey, onConnect }: ReserveProps) {
               <div>
                 <p className="text-sm text-muted mb-0.5">Web3 Identity</p>
                 <p className="text-[10px] font-mono text-muted/60">
-                  Freighter · Stellar Testnet required
+                  Freighter, Albedo, or xBull · Testnet required
                 </p>
               </div>
               <WalletConnect onConnect={onConnect} publicKey={publicKey} />
@@ -363,7 +363,7 @@ export function Reserve({ publicKey, onConnect }: ReserveProps) {
                 ) : (
                   <>
                     <Lock className="w-4 h-4 mr-2" />
-                    Lock Reservation — Approve in Freighter
+                    Lock Reservation — Approve in Wallet
                   </>
                 )}
               </Button>

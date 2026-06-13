@@ -62,6 +62,20 @@ export interface TransactionResult {
   [key: string]: any;
 }
 
+export type TransactionPhase = "preparing" | "awaiting_signature" | "pending" | "success" | "failed";
+
+export interface TransactionStatusUpdate {
+  phase: TransactionPhase;
+  message: string;
+  hash?: string;
+}
+
+function publishTransactionStatus(update: TransactionStatusUpdate): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("sa-prime:transaction-status", { detail: update }));
+  }
+}
+
 /* ─── AMOUNT HELPERS ────────────────────────────────────────────────── */
 
 /** Convert human-readable XLM to stroops (1 XLM = 10,000,000 stroops) */
@@ -157,6 +171,22 @@ export function pollEscrowStatus(
   return () => clearInterval(id);
 }
 
+/** Legacy single-vault reader retained for the older broker screens. */
+export async function getContractStatus(): Promise<EscrowState> {
+  return (
+    (await getEscrowState("LOT-07")) ?? {
+      status: null,
+      amount: null,
+      buyer: null,
+      broker: null,
+      token: null,
+      docsVerified: false,
+      expiryLedger: null,
+      docHash: null,
+    }
+  );
+}
+
 /* ─── RAW RPC HELPER ───────────────────────────────────────────────── */
 
 /**
@@ -197,7 +227,7 @@ function extractSimRetval(sim: any): xdr.ScVal {
  *  1. Load caller's account sequence number
  *  2. Build a transaction with the contract operation
  *  3. Simulate on RPC (computes resource fees + footprint)
- *  4. Send to Freighter for signing
+ *  4. Send to the selected wallet for signing
  *  5. Submit to network and poll for confirmation
  */
 export async function invokeSorobanContract(
@@ -206,6 +236,7 @@ export async function invokeSorobanContract(
 ): Promise<TransactionResult> {
   let step = "load account";
   try {
+    publishTransactionStatus({ phase: "preparing", message: "Preparing Soroban transaction" });
     const account = await server.getAccount(sourcePublicKey);
 
     step = "build transaction";
@@ -220,7 +251,8 @@ export async function invokeSorobanContract(
     step = "prepare transaction";
     const preparedTx = await server.prepareTransaction(tx);
 
-    step = "Freighter signature";
+    step = "wallet signature";
+    publishTransactionStatus({ phase: "awaiting_signature", message: "Approve the transaction in your wallet" });
     const signed = await signTransaction(preparedTx.toXDR(), {
       networkPassphrase: NETWORK_PASSPHRASE,
       address: sourcePublicKey,
@@ -232,7 +264,7 @@ export async function invokeSorobanContract(
         ? signed
         : (signed as any)?.signedTxXdr ?? (signed as any)?.signedTxXDR;
     if (!signedXdr || typeof signedXdr !== "string") {
-      throw new Error("Freighter returned an invalid signed transaction.");
+      throw new Error("The wallet returned an invalid signed transaction.");
     }
 
     step = "parse signed XDR";
@@ -245,6 +277,8 @@ export async function invokeSorobanContract(
         (response as any).errorResult?.toString() ?? "Send failed"
       );
     }
+
+    publishTransactionStatus({ phase: "pending", message: "Transaction submitted to Stellar", hash: response.hash });
 
     step = "poll confirmation";
     let getResponse = await getTransactionStatusRaw(response.hash);
@@ -268,6 +302,7 @@ export async function invokeSorobanContract(
       );
     }
 
+    publishTransactionStatus({ phase: "success", message: "Transaction confirmed on Stellar Testnet", hash: response.hash });
     return { ...getResponse, hash: response.hash };
   } catch (e: any) {
     const msg = e?.message ?? String(e);
@@ -276,8 +311,81 @@ export async function invokeSorobanContract(
         `Transaction rejected by Smart Contract (UnreachableCodeReached). Ensure you are using the correct wallet and the escrow is in the valid state.`
       );
     }
+    publishTransactionStatus({ phase: "failed", message: msg });
     throw new Error(`[${step}] ${msg}`);
   }
+}
+
+export interface ContractEventRecord {
+  id: string;
+  action: string;
+  ledger: number;
+  txHash: string;
+  closedAt: string;
+}
+
+async function rpcRequest<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  const response = await fetch(SOROBAN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
+  });
+  const payload = await response.json();
+  if (payload.error) throw new Error(payload.error.message ?? `${method} failed`);
+  return payload.result as T;
+}
+
+function decodeEventAction(topic: string[]): string {
+  try {
+    const decoded = topic.map((entry) => scValToNative(xdr.ScVal.fromXDR(entry, "base64")));
+    return decoded.map(String).join(" · ");
+  } catch {
+    return "Contract state changed";
+  }
+}
+
+export async function getRecentContractEvents(): Promise<ContractEventRecord[]> {
+  const latest = await rpcRequest<{ sequence: number }>("getLatestLedger");
+  const result = await rpcRequest<{
+    events: Array<{ id: string; ledger: number; ledgerClosedAt: string; topic: string[]; txHash: string }>;
+  }>("getEvents", {
+    startLedger: Math.max(1, latest.sequence - 10_000),
+    filters: [{ type: "contract", contractIds: [CONTRACT_ADDRESS] }],
+    pagination: { limit: 20 },
+  });
+
+  return result.events.map((event) => ({
+    id: event.id,
+    action: decodeEventAction(event.topic),
+    ledger: event.ledger,
+    txHash: event.txHash,
+    closedAt: event.ledgerClosedAt,
+  }));
+}
+
+export function watchContractEvents(
+  callback: (events: ContractEventRecord[]) => void,
+  intervalMs = 5_000
+): () => void {
+  let seen = new Set<string>();
+  let stopped = false;
+  const poll = async () => {
+    try {
+      const events = await getRecentContractEvents();
+      if (stopped) return;
+      const fresh = events.filter((event) => !seen.has(event.id));
+      seen = new Set(events.map((event) => event.id));
+      if (fresh.length > 0) callback(fresh);
+    } catch (error) {
+      console.warn("[ContractEvents] Poll failed:", error);
+    }
+  };
+  void poll();
+  const timer = window.setInterval(poll, intervalMs);
+  return () => {
+    stopped = true;
+    window.clearInterval(timer);
+  };
 }
 
 /* ─── READ-ONLY CONTRACT QUERIES ───────────────────────────────────── */
@@ -357,6 +465,13 @@ export async function lockFunds(
   lotId: string,
   amount: number
 ): Promise<TransactionResult> {
+  const balance = await getXlmBalance(publicKey);
+  if (balance === null) {
+    throw new Error("Wallet account was not found on Stellar Testnet. Fund it with Friendbot first.");
+  }
+  if (balance < amount + 1) {
+    throw new Error(`Insufficient XLM balance. This escrow needs ${amount} XLM plus network reserve and fees.`);
+  }
   const amountStroops = BigInt(Math.round(amount * 1e7));
 
   const op = contract.call(

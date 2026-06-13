@@ -1,26 +1,17 @@
 /**
  * SA Prime Properties — Live Activity Feed Ticker
  *
- * Polls Stellar Horizon Testnet every 20 seconds for recent contract
- * transactions and displays them in a horizontally scrolling ticker.
+ * Polls Soroban RPC for recent typed contract events and displays them in a
+ * horizontally scrolling ticker.
  *
  * CSS-only scrolling animation — no JS scroll loop.
  * Pause on hover via animation-play-state.
  * LIVE badge on left, gradient fade-out on right edge.
  */
 import { useState, useEffect } from "react";
-import { CONTRACT_ADDRESS, HORIZON_URL } from "@/lib/constants";
+import { getRecentContractEvents, type ContractEventRecord } from "@/lib/stellar";
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
-
-interface HorizonTransaction {
-  id: string;
-  hash: string;
-  created_at: string;
-  memo?: string;
-  memo_type?: string;
-  successful: boolean;
-}
 
 interface TickerItem {
   id: string;
@@ -40,84 +31,14 @@ function relativeTime(ts: string): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-/* ─── Memo Parser ───────────────────────────────────────────────────── */
-
-/**
- * Parses a Horizon transaction memo into a human-readable ticker event.
- * Soroban contract calls usually have empty or binary memos, so we
- * construct a label from available context and fall back gracefully.
- */
-function parseTxToTickerItem(tx: HorizonTransaction): TickerItem {
-  const time = relativeTime(tx.created_at);
-  const shortHash = `${tx.hash.slice(0, 8)}...`;
-
-  // Try to read a text memo
-  let memo = "";
-  if (tx.memo_type === "text" && tx.memo) {
-    memo = tx.memo.trim();
-  }
-
-  // Attempt to parse structured memos like "LOCK:LOT42:500XLM"
-  const lockMatch = memo.match(/LOCK[:\-]?LOT[:\-]?(\d+)[:\-]?(\d+(?:\.\d+)?)/i);
-  const refundMatch = memo.match(/REFUND[:\-]?LOT[:\-]?(\d+)/i);
-  const docsMatch = memo.match(/DOCS[:\-]?LOT[:\-]?(\d+)/i);
-  const releaseMatch = memo.match(/RELEASE[:\-]?LOT[:\-]?(\d+)/i);
-
-  if (lockMatch) {
-    return {
-      id: tx.id,
-      hash: tx.hash,
-      label: `LOT-${lockMatch[1]} · Escrow Locked`,
-      amount: `${lockMatch[2]} XLM`,
-      timeAgo: time,
-    };
-  }
-  if (refundMatch) {
-    return {
-      id: tx.id,
-      hash: tx.hash,
-      label: `LOT-${refundMatch[1]} · Refund Issued`,
-      amount: "XLM returned",
-      timeAgo: time,
-    };
-  }
-  if (releaseMatch) {
-    return {
-      id: tx.id,
-      hash: tx.hash,
-      label: `LOT-${releaseMatch[1]} · Funds Released`,
-      amount: "—",
-      timeAgo: time,
-    };
-  }
-  if (docsMatch) {
-    return {
-      id: tx.id,
-      hash: tx.hash,
-      label: `LOT-${docsMatch[1]} · Credentials Anchored`,
-      amount: "—",
-      timeAgo: time,
-    };
-  }
-
-  // Generic memo text if available
-  if (memo && memo.length > 0 && memo.length < 60) {
-    return {
-      id: tx.id,
-      hash: tx.hash,
-      label: memo,
-      amount: "—",
-      timeAgo: time,
-    };
-  }
-
-  // Final fallback
+function eventToTickerItem(event: ContractEventRecord): TickerItem {
+  const [, action = "updated", lotId = "Escrow"] = event.action.split(" · ");
   return {
-    id: tx.id,
-    hash: tx.hash,
-    label: "SA Prime Properties · Contract Event",
+    id: event.id,
+    hash: event.txHash,
+    label: `${lotId} · ${action.charAt(0).toUpperCase()}${action.slice(1)}`,
     amount: "—",
-    timeAgo: time,
+    timeAgo: relativeTime(event.closedAt),
   };
 }
 
@@ -170,22 +91,16 @@ export function ActivityFeed() {
 
   const fetchTransactions = async () => {
     try {
-      const url = `${HORIZON_URL}/accounts/${CONTRACT_ADDRESS}/transactions?order=desc&limit=5`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Horizon ${res.status}`);
-      const data = await res.json();
-      const records: HorizonTransaction[] =
-        data?._embedded?.records ?? [];
+      const records = await getRecentContractEvents();
 
       if (records.length === 0) {
-        // No transactions yet — keep demo items but mark live
+        // RPC is reachable but the contract has not emitted an event yet.
         setIsLive(true);
+        setError(false);
         return;
       }
 
-      const parsed = records
-        .filter((tx) => tx.successful)
-        .map(parseTxToTickerItem);
+      const parsed = records.map(eventToTickerItem);
 
       // Pad to at least 5 items so ticker always has content
       const padded =
@@ -197,7 +112,7 @@ export function ActivityFeed() {
       setIsLive(true);
       setError(false);
     } catch (e) {
-      console.warn("[ActivityFeed] Horizon fetch failed:", e);
+      console.warn("[ActivityFeed] Soroban event fetch failed:", e);
       setError(true);
       setIsLive(false);
     }

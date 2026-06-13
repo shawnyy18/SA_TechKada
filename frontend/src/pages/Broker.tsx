@@ -3,7 +3,7 @@
  *
  * DEMO MODE: SA Prime Properties broker portal for credential submission.
  *
- * The broker connects their Freighter wallet, views active locked escrows,
+ * The broker connects an approved Stellar wallet, views active locked escrows,
  * and submits credentials to the Stellar ledger via SHA-256 hash (Web Crypto).
  *
  * Note: No real file reading occurs. All "uploads" are simulated via
@@ -196,7 +196,7 @@ export function Broker({ publicKey, onConnect }: BrokerProps) {
           </div>
           <h3 className="text-xl font-serif mb-2">Broker Authentication Required</h3>
           <p className="text-muted text-sm text-center max-w-sm mb-6">
-            Connect the registered broker Freighter wallet to access the credential upload portal.
+            Connect the registered broker wallet to access the credential upload portal.
           </p>
           <button
             onClick={handleConnect}

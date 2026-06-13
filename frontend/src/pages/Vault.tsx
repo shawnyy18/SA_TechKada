@@ -112,9 +112,9 @@ export function Vault({ publicKey, onConnect }: VaultProps) {
           if (hasLock) return prev;
           return [
             {
-              hash: data.isDemo ? "demo_lock_tx_hash_for_display" : "",
+              hash: firstActive.isDemo ? "demo_lock_tx_hash_for_display" : "",
               action: "lock_funds",
-              amountStroops: data.amount,
+              amountStroops: firstActive.amount,
               status: "SUCCESS",
             },
           ];
@@ -247,7 +247,7 @@ export function Vault({ publicKey, onConnect }: VaultProps) {
   const escrowExpiry = lockTimestamp + ESCROW_EXPIRY_MS;
   const msRemaining = escrowExpiry - Date.now();
   const showAutoRefundWarning =
-    Object.values(escrows).some(e => e.status === 0) && msRemaining > 0 && msRemaining < 24 * 60 * 60 * 1000;
+    (Object.values(escrows) as EscrowState[]).some((e) => e.status === 0) && msRemaining > 0 && msRemaining < 24 * 60 * 60 * 1000;
 
   // Read dismissal from sessionStorage
   const warningStorageKey = publicKey ? `sa_prime_vault_warning_dismissed_${publicKey}` : "";
@@ -279,12 +279,12 @@ export function Vault({ publicKey, onConnect }: VaultProps) {
         </div>
         <h2 className="text-3xl font-serif mb-4">Trust Vault Access</h2>
         <p className="text-muted text-center max-w-md mb-8 leading-relaxed">
-          Connect your Freighter wallet to view your active real estate
+          Connect your Stellar wallet to view your active real estate
           reservations and manage cryptographic escrows.
         </p>
         <Button onClick={handleWalletConnect} size="lg" id="vault-connect-btn">
           <Wallet className="w-4 h-4 mr-2" />
-          Connect Freighter Wallet
+          Connect Stellar Wallet
         </Button>
       </div>
     );
@@ -413,7 +413,7 @@ export function Vault({ publicKey, onConnect }: VaultProps) {
       {/* Active Escrow Dashboard */}
       {!isLoading && hasEscrow && (
         <div className="space-y-16">
-          {Object.entries(escrows).map(([lotId, statusObj]) => {
+          {(Object.entries(escrows) as [string, EscrowState][]).map(([lotId, statusObj]) => {
             const currentStatus = statusObj.status;
             const amountXlm = statusObj.amount ? formatStroopsAsXlm(statusObj.amount) : "0";
             const amountPhp = statusObj.amount ? xlmToPhp(Number(statusObj.amount) / 1e7) : "0.00";

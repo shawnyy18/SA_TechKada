@@ -1,12 +1,12 @@
 /**
  * SA Prime Properties — Wallet Connection Component
  *
- * Renders a Freighter wallet connect/disconnect button with:
+ * Renders a multi-wallet connect/disconnect button with:
  * - Truncated public key display
  * - Live XLM balance from Horizon
  * - Always-visible TESTNET amber badge when connected
  * - Network guard: shows error if user is not on Stellar Testnet
- * - Manual connect fallback for demo purposes
+ * - Signed, expiring wallet session proof
  */
 import { useState, useEffect } from "react";
 import {
@@ -14,12 +14,16 @@ import {
   guardTestnet,
   isConnected,
   getPublicKey,
+  signInWithStellar,
+  getConnectedWalletName,
+  disconnectWallet,
   truncateAddress,
 } from "@/lib/freighter";
 import { getXlmBalance } from "@/lib/stellar";
 import { Button } from "./ui/Button";
-import { Wallet, LogOut, Code, AlertTriangle } from "lucide-react";
+import { Wallet, LogOut, AlertTriangle, ShieldCheck } from "lucide-react";
 import { showTransactionError } from "./TransactionToast";
+import { clearWalletSession, hasValidWalletSession, saveWalletSession } from "@/lib/account";
 
 interface WalletConnectProps {
   onConnect?: (publicKey: string) => void;
@@ -36,22 +40,22 @@ export function WalletConnect({
 }: WalletConnectProps) {
   const [localKey, setLocalKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showManual, setShowManual] = useState(false);
-  const [manualInput, setManualInput] = useState("");
   const [xlmBalance, setXlmBalance] = useState<number | null>(null);
   const [networkError, setNetworkError] = useState<string | null>(null);
+  const [walletName, setWalletName] = useState("Stellar Wallet");
 
   const keyToUse =
     externalPublicKey !== undefined ? externalPublicKey : localKey;
 
-  // Auto-detect existing Freighter connection on mount
+  // Auto-detect an existing StellarWalletsKit connection on mount.
   useEffect(() => {
     (async () => {
       if (await isConnected()) {
         const pk = await getPublicKey();
-        if (pk) {
+        if (pk && hasValidWalletSession(pk)) {
           setLocalKey(pk);
           onConnect?.(pk);
+          setWalletName(getConnectedWalletName());
           fetchBalance(pk);
         }
       }
@@ -69,39 +73,26 @@ export function WalletConnect({
     try {
       const key = await connectWallet();
       if (key) {
-        // Guard: must be on Testnet
-        await guardTestnet().catch((err: Error) => {
-          setNetworkError(err.message);
-        });
+        await guardTestnet();
+        const proof = await signInWithStellar(key);
+        saveWalletSession(proof);
         setLocalKey(key);
+        setWalletName(getConnectedWalletName());
         onConnect?.(key);
         fetchBalance(key);
       }
     } catch (e: any) {
-      console.error("[WalletConnect] Freighter Error:", e);
-      showTransactionError(e?.message || "Failed to connect Freighter.");
+      console.error("[WalletConnect] Wallet Error:", e);
+      showTransactionError(e?.message || "Failed to connect the Stellar wallet.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleManualConnect = () => {
-    const trimmed = manualInput.trim();
-    if (trimmed.length === 56 && trimmed.startsWith("G")) {
-      setLocalKey(trimmed);
-      onConnect?.(trimmed);
-      fetchBalance(trimmed);
-      setShowManual(false);
-    } else {
-      showTransactionError(
-        "Invalid Stellar Public Key. Must start with 'G' and be 56 characters."
-      );
-    }
-  };
-
-  const handleDisconnect = () => {
+  const handleDisconnect = async () => {
+    if (keyToUse) clearWalletSession(keyToUse);
+    await disconnectWallet().catch(() => undefined);
     setLocalKey(null);
-    setManualInput("");
     setXlmBalance(null);
     setNetworkError(null);
     onDisconnect?.();
@@ -127,6 +118,9 @@ export function WalletConnect({
           <span className="text-sm font-mono text-off-white">
             {truncateAddress(keyToUse)}
           </span>
+          <span className="text-[9px] font-mono text-success flex items-center gap-1 uppercase tracking-wider">
+              <ShieldCheck className="w-2.5 h-2.5" /> {walletName}
+          </span>
           {xlmBalance !== null && !compact && (
             <span className="text-[10px] font-mono text-gold">
               {xlmBalance.toLocaleString("en-US", { maximumFractionDigits: 2 })}{" "}
@@ -142,30 +136,6 @@ export function WalletConnect({
     );
   }
 
-  if (showManual) {
-    return (
-      <div className="flex items-center space-x-2 bg-surface p-1 rounded-md border border-gold/20">
-        <input
-          type="text"
-          placeholder="G..."
-          className="bg-transparent border-none text-xs font-mono text-off-white px-2 py-1 w-40 focus:outline-none placeholder:text-muted/50"
-          value={manualInput}
-          onChange={(e) => setManualInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleManualConnect()}
-        />
-        <Button onClick={handleManualConnect} size="sm" className="h-7 text-[10px]">
-          Connect
-        </Button>
-        <button
-          onClick={() => setShowManual(false)}
-          className="text-muted hover:text-off-white px-2 text-xs"
-        >
-          Cancel
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="flex items-center space-x-2">
       <Button
@@ -176,16 +146,8 @@ export function WalletConnect({
         id="connect-wallet-btn"
       >
         <Wallet className="w-3.5 h-3.5 mr-1.5" />
-        {isLoading ? "Connecting…" : "Connect Freighter"}
+        {isLoading ? "Connecting…" : "Connect Wallet"}
       </Button>
-      <button
-        onClick={() => setShowManual(true)}
-        className="text-muted hover:text-gold transition-colors p-2"
-        title="Manual Connect (Demo)"
-        id="manual-connect-btn"
-      >
-        <Code className="w-4 h-4" />
-      </button>
     </div>
   );
 }
